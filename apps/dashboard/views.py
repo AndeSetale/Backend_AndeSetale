@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 
 from apps.incidents.models import Incident
 from apps.users.models import Agent
+from .serializers import DashboardStatsSerializer
 
 
 class DashboardStatsView(APIView):
@@ -25,42 +26,19 @@ class DashboardStatsView(APIView):
         summary="Statistiques du dashboard superviseur",
         description=(
             "Retourne les compteurs clés et la répartition des incidents par statut. "
-            "Accessible uniquement aux utilisateurs authentifiés."
+            "Accessible uniquement aux utilisateurs authentifiés. "
+            "Temps de réponse cible < 500 ms."
         ),
         responses={
             200: OpenApiResponse(
                 description="Statistiques retournées avec succès",
-                response={
-                    "type": "object",
-                    "properties": {
-                        "signalements": {
-                            "type": "object",
-                            "properties": {
-                                "total": {"type": "integer"},
-                                "en_cours": {"type": "integer"},
-                                "resolus": {"type": "integer"},
-                                "urgents": {"type": "integer"},
-                            },
-                        },
-                        "incidents_par_statut": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "statut": {"type": "string"},
-                                    "count": {"type": "integer"},
-                                },
-                            },
-                        },
-                        "agents_disponibles": {"type": "integer"},
-                    },
-                },
-            )
+                response=DashboardStatsSerializer,
+            ),
         },
         tags=["Dashboard"],
     )
     def get(self, request):
-        # --- Compteurs signalements ---
+        # --- Compteurs signalements (3 requêtes agrégées) ---
         total = Incident.objects.count()
         en_cours = Incident.objects.filter(
             statut=Incident.StatutIncident.EN_COURS
@@ -75,7 +53,7 @@ class DashboardStatsView(APIView):
             ]
         ).count()
 
-        # --- Incidents par statut (liste détaillée) ---
+        # --- Incidents par statut (1 requête groupée) ---
         par_statut = (
             Incident.objects.values("statut")
             .annotate(count=Count("id"))

@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -65,6 +67,13 @@ class Incident(models.Model):
         verbose_name_plural = "Incidents"
         ordering = ["-date_creation"]
 
+    def save(self, *args, **kwargs):
+        # Génère automatiquement une référence unique à la première sauvegarde.
+        # Format : INC-XXXXXXXX  (8 caractères hex tirés d'un UUID4)
+        if not self.reference:
+            self.reference = f"INC-{uuid.uuid4().hex[:8].upper()}"
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"[{self.reference}] {self.get_type_display()} — {self.get_statut_display()}"
 
@@ -83,7 +92,7 @@ class Preuve(models.Model):
         related_name="preuves",
     )
     type = models.CharField(max_length=20, choices=TypePreuve.choices)
-    url = models.CharField(max_length=500)
+    image = models.ImageField(upload_to="preuves/%Y/%m/", blank=True, null=True)
     date_ajout = models.DateTimeField(auto_now_add=True)
 
     class Meta:
