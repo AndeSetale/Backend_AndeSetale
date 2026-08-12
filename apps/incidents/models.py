@@ -69,8 +69,18 @@ class Incident(models.Model):
         return f"[{self.reference}] {self.get_type_display()} — {self.get_statut_display()}"
 
 
+<<<<<<< HEAD
 class Preuve(models.Model):
     """Photo ou document attaché à un incident."""
+=======
+def preuve_upload_path(instance, filename):
+    """Classe les photos par incident : preuves/incident_<id>/<filename>."""
+    return f"preuves/incident_{instance.incident_id}/{filename}"
+
+
+class Preuve(models.Model):
+    """Photo attachée à un incident (upload multipart/form-data)."""
+>>>>>>> feature/BE-011-upload-photo
 
     class TypePreuve(models.TextChoices):
         PHOTO_INITIALE = "PHOTO_INITIALE", "Photo initiale"
@@ -83,7 +93,15 @@ class Preuve(models.Model):
         related_name="preuves",
     )
     type = models.CharField(max_length=20, choices=TypePreuve.choices)
+<<<<<<< HEAD
     url = models.CharField(max_length=500)
+=======
+    # ImageField remplace l'ancien CharField(url) — upload via multipart
+    image = models.ImageField(
+        upload_to=preuve_upload_path,
+        help_text="Image JPG/PNG/WebP, taille max 5 MB",
+    )
+>>>>>>> feature/BE-011-upload-photo
     date_ajout = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -94,6 +112,16 @@ class Preuve(models.Model):
     def __str__(self):
         return f"{self.get_type_display()} — Incident #{self.incident_id}"
 
+<<<<<<< HEAD
+=======
+    @property
+    def url(self):
+        """Compatibilité : retourne l'URL absolue de l'image."""
+        if self.image:
+            return self.image.url
+        return None
+
+>>>>>>> feature/BE-011-upload-photo
 
 class AnalyseIA(models.Model):
     """Analyse automatique d'un incident par IA."""
