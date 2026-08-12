@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -37,6 +39,13 @@ class Intervention(models.Model):
         verbose_name = "Intervention"
         verbose_name_plural = "Interventions"
         ordering = ["-date_debut"]
+
+    def save(self, *args, **kwargs):
+        # Génère automatiquement un numéro de suivi à la première sauvegarde.
+        # Format : INT-XXXXXXXX  (8 caractères hex tirés d'un UUID4)
+        if not self.numero_suivi:
+            self.numero_suivi = f"INT-{uuid.uuid4().hex[:8].upper()}"
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Intervention {self.numero_suivi} — {self.get_statut_display()}"

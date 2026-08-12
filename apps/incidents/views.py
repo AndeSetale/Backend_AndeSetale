@@ -1,108 +1,117 @@
-<<<<<<< HEAD
-from django.shortcuts import render
-
-# Create your views here.
-=======
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
-from rest_framework import generics, parsers, status
-from rest_framework.exceptions import NotFound
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import Incident, Preuve
-from .serializers import PreuveListSerializer, PreuveUploadSerializer
-
-
-@extend_schema_view(
-    get=extend_schema(
-        summary="Lister les preuves d'un incident",
-        description="Retourne toutes les photos attachées à l'incident.",
-        responses={200: PreuveListSerializer(many=True)},
-        tags=["Incidents - Preuves"],
-    ),
-    post=extend_schema(
-        summary="Uploader une photo de preuve",
-        description=(
-            "Upload d'une photo via multipart/form-data. "
-            "Formats acceptés : JPEG, PNG, WebP. Taille max : 5 MB."
-        ),
-        request={
-            "multipart/form-data": {
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "type": "string",
-                        "enum": ["PHOTO_INITIALE", "PHOTO_AVANT", "PHOTO_APRES"],
-                    },
-                    "image": {"type": "string", "format": "binary"},
-                },
-                "required": ["type", "image"],
-            }
-        },
-        responses={
-            201: PreuveUploadSerializer,
-            400: OpenApiResponse(description="Validation échouée (taille/format)"),
-            404: OpenApiResponse(description="Incident non trouvé"),
-        },
-        tags=["Incidents - Preuves"],
-    ),
+from .serializers import (
+    IncidentSerializer,
+    IncidentCreateSerializer,
+    PreuveSerializer,
+    PreuveUploadSerializer,
 )
-class PreuveListCreateView(generics.GenericAPIView):
+
+
+class IncidentListView(APIView):
     """
-    GET  /api/incidents/{incident_id}/preuves/   — Lister les photos d'un incident
-    POST /api/incidents/{incident_id}/preuves/   — Uploader une photo (multipart/form-data)
+    GET  /api/incidents/  — liste tous les incidents avec leurs preuves
+    POST /api/incidents/  — crée un incident (image initiale optionnelle)
     """
 
     permission_classes = [IsAuthenticated]
-    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
+    # multipart pour la création avec photo ; JSON accepté aussi (sans photo)
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
-    def _get_incident(self, incident_id):
-        try:
-            return Incident.objects.get(pk=incident_id)
-        except Incident.DoesNotExist:
-            raise NotFound(f"Incident #{incident_id} introuvable.")
-
-    def get(self, request, incident_id):
-        incident = self._get_incident(incident_id)
-        preuves = incident.preuves.all()
-        serializer = PreuveListSerializer(
-            preuves, many=True, context={"request": request}
+    @extend_schema(
+        summary="Liste des incidents",
+        responses={200: IncidentSerializer(many=True)},
+        tags=["Incidents"],
+    )
+    def get(self, request):
+        incidents = (
+            Incident.objects.prefetch_related("preuves").order_by("-date_creation")
+        )
+        serializer = IncidentSerializer(
+            incidents, many=True, context={"request": request}
         )
         return Response(serializer.data)
 
-    def post(self, request, incident_id):
-        incident = self._get_incident(incident_id)
+    @extend_schema(
+        summary="Créer un incident",
+        description=(
+            "Crée un nouvel incident. Le champ `image` est optionnel : "
+            "si fourni (multipart/form-data), une Preuve PHOTO_INITIALE est créée "
+            "automatiquement. Taille max image : 5 MB. Formats : JPEG, PNG, WebP."
+        ),
+        request=IncidentCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                description="Incident créé avec succès",
+                response=IncidentSerializer,
+            ),
+            400: OpenApiResponse(description="Données invalides"),
+        },
+        tags=["Incidents"],
+    )
+    def post(self, request):
+        serializer = IncidentCreateSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        # Injecte automatiquement le citoyen connecté
+        incident = serializer.save(signale_par=request.user)
+
+        output = IncidentSerializer(incident, context={"request": request})
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class PreuveUploadView(APIView):
+    """
+    POST /api/incidents/preuves/upload/
+
+    Upload d'une photo de preuve pour un incident existant.
+    Corps multipart/form-data :
+      - incident_id  (integer)
+      - type         (PHOTO_INITIALE | PHOTO_AVANT | PHOTO_APRES)
+      - image        (fichier requis, < 5 MB, JPEG/PNG/WebP)
+    """
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        summary="Upload d'une photo de preuve",
+        description=(
+            "Upload multipart d'une image attachée à un incident existant. "
+            "L'image est OBLIGATOIRE sur cet endpoint. "
+            "Taille max : 5 MB. Formats acceptés : JPEG, PNG, WebP."
+        ),
+        request=PreuveUploadSerializer,
+        responses={
+            201: OpenApiResponse(
+                description="Preuve créée avec succès",
+                response=PreuveSerializer,
+            ),
+            400: OpenApiResponse(description="Données invalides"),
+            404: OpenApiResponse(description="Incident introuvable"),
+        },
+        tags=["Incidents"],
+    )
+    def post(self, request):
         serializer = PreuveUploadSerializer(
             data=request.data, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save(incident=incident)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+        incident = Incident.objects.get(pk=serializer.validated_data["incident_id"])
+        preuve = Preuve.objects.create(
+            incident=incident,
+            type=serializer.validated_data["type"],
+            image=serializer.validated_data["image"],
+        )
 
-@extend_schema(
-    summary="Supprimer une preuve",
-    description="Supprime une photo de preuve et le fichier associé.",
-    responses={
-        204: OpenApiResponse(description="Preuve supprimée"),
-        404: OpenApiResponse(description="Preuve ou incident introuvable"),
-    },
-    tags=["Incidents - Preuves"],
-)
-class PreuveDestroyView(generics.GenericAPIView):
-    """DELETE /api/incidents/{incident_id}/preuves/{preuve_id}/"""
-
-    permission_classes = [IsAuthenticated]
-
-    def delete(self, request, incident_id, preuve_id):
-        try:
-            preuve = Preuve.objects.get(pk=preuve_id, incident_id=incident_id)
-        except Preuve.DoesNotExist:
-            raise NotFound("Preuve introuvable.")
-
-        # Supprimer le fichier physique avant de supprimer l'objet
-        if preuve.image:
-            preuve.image.delete(save=False)
-        preuve.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
->>>>>>> feature/BE-011-upload-photo
+        output = PreuveSerializer(preuve, context={"request": request})
+        return Response(output.data, status=status.HTTP_201_CREATED)
