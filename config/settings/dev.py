@@ -10,5 +10,5 @@ INSTALLED_APPS += ["debug_toolbar"]  # noqa: F405
 MIDDLEWARE += ["debug_toolbar.middleware.DebugToolbarMiddleware"]  # noqa: F405
 INTERNAL_IPS = ["127.0.0.1"]
 
-# --- Email console ---
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+# --- Email : géré via MAILERS dans base.py (Django 5.2+) ---
+# EMAIL_BACKEND ne doit pas coexister avec MAILERS
