@@ -22,3 +22,10 @@ dev = [
     "pytest-django>=4.14.0",
     "ruff>=0.16.2",
 ]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["tests.py", "test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
