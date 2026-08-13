@@ -34,6 +34,7 @@ def factory():
 def citoyen(db):
     return User.objects.create_user(
         username="citoyen1",
+        email="citoyen1@test.com",
         password="pass1234!",
         role=Utilisateur.Role.CITOYEN,
     )
@@ -43,6 +44,7 @@ def citoyen(db):
 def agent(db):
     return User.objects.create_user(
         username="agent1",
+        email="agent1@test.com",
         password="pass1234!",
         role=Utilisateur.Role.AGENT,
     )
@@ -210,7 +212,7 @@ class TestPermissionsAPI:
     def _get_token(self, username, password):
         resp = self.client.post(
             "/api/auth/login/",
-            {"username": username, "password": password},
+            {"identifiant": username, "password": password},
             format="json",
         )
         return resp.data.get("access")
@@ -221,14 +223,14 @@ class TestPermissionsAPI:
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_citoyen_peut_acceder_me(self, citoyen):
-        token = self._get_token("citoyen1", "pass1234!")
+        token = self._get_token("citoyen1@test.com", "pass1234!")
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         resp = self.client.get("/api/auth/me/")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data["role"] == "citoyen"
 
     def test_agent_peut_acceder_me(self, agent):
-        token = self._get_token("agent1", "pass1234!")
+        token = self._get_token("agent1@test.com", "pass1234!")
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         resp = self.client.get("/api/auth/me/")
         assert resp.status_code == status.HTTP_200_OK

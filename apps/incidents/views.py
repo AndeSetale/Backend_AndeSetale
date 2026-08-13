@@ -1,7 +1,7 @@
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -16,13 +16,18 @@ from .serializers import (
 
 class IncidentListView(APIView):
     """
-    GET  /api/incidents/  — liste tous les incidents avec leurs preuves
-    POST /api/incidents/  — crée un incident (image initiale optionnelle)
+    GET  /api/incidents/  — liste tous les incidents (authentifié)
+    POST /api/incidents/  — crée un incident (accessible SANS authentification)
     """
 
-    permission_classes = [IsAuthenticated]
-    # multipart pour la création avec photo ; JSON accepté aussi (sans photo)
+    # La création doit être ouverte au public (signalement citoyen sans compte).
+    # La lecture de la liste complète reste réservée aux utilisateurs connectés.
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     @extend_schema(
         summary="Liste des incidents",
@@ -39,11 +44,14 @@ class IncidentListView(APIView):
         return Response(serializer.data)
 
     @extend_schema(
-        summary="Créer un incident",
+        summary="Créer un incident (avec ou sans compte)",
         description=(
-            "Crée un nouvel incident. Le champ `image` est optionnel : "
-            "si fourni (multipart/form-data), une Preuve PHOTO_INITIALE est créée "
-            "automatiquement. Taille max image : 5 MB. Formats : JPEG, PNG, WebP."
+            "Crée un nouvel incident. Accessible sans authentification : "
+            "si l'utilisateur est connecté, `signale_par` est rempli automatiquement, "
+            "sinon `signale_par` reste `null`. "
+            "Le champ `image` est optionnel : si fourni (multipart/form-data), "
+            "une Preuve PHOTO_INITIALE est créée automatiquement. "
+            "Taille max image : 5 MB. Formats : JPEG, PNG, WebP."
         ),
         request=IncidentCreateSerializer,
         responses={
@@ -61,11 +69,37 @@ class IncidentListView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        # Injecte automatiquement le citoyen connecté
-        incident = serializer.save(signale_par=request.user)
+        # signale_par = utilisateur connecté, ou None si signalement anonyme
+        signale_par = request.user if request.user.is_authenticated else None
+        incident = serializer.save(signale_par=signale_par)
 
         output = IncidentSerializer(incident, context={"request": request})
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class MesIncidentsView(APIView):
+    """
+    GET /api/incidents/my/ — liste uniquement les incidents du citoyen connecté.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Mes signalements",
+        description="Retourne uniquement les incidents signalés par l'utilisateur connecté.",
+        responses={200: IncidentSerializer(many=True)},
+        tags=["Incidents"],
+    )
+    def get(self, request):
+        incidents = (
+            Incident.objects.filter(signale_par=request.user)
+            .prefetch_related("preuves")
+            .order_by("-date_creation")
+        )
+        serializer = IncidentSerializer(
+            incidents, many=True, context={"request": request}
+        )
+        return Response(serializer.data)
 
 
 class PreuveUploadView(APIView):

@@ -1,8 +1,13 @@
+import re
+
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Agent, Administrateur, Citoyen, Utilisateur
+from .models import Agent, Administrateur, Citoyen, OTP, Utilisateur
+
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class UtilisateurSerializer(serializers.ModelSerializer):
@@ -26,73 +31,188 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "email_verifie", "date_joined")
 
 
-class RegisterSerializer(serializers.ModelSerializer):
-    """Inscription d'un nouvel utilisateur."""
+# ---------------------------------------------------------------------------
+# Inscription — contrat exact attendu par la maquette Angular
+# ---------------------------------------------------------------------------
 
-    password = serializers.CharField(
-        write_only=True,
-        required=True,
-        validators=[validate_password],
-    )
-    password2 = serializers.CharField(write_only=True, required=True, label="Confirmation mot de passe")
+class RegisterSerializer(serializers.Serializer):
+    """
+    Inscription d'un nouvel utilisateur — CONTRAT MAQUETTE :
+    nom_complet, email_ou_telephone, quartier, password,
+    accepte_conditions, recevoir_alertes.
 
-    class Meta:
-        model = Utilisateur
-        fields = (
-            "username",
-            "email",
-            "first_name",
-            "last_name",
-            "password",
-            "password2",
-            "role",
-            "telephone",
-            "quartier",
-        )
+    Le rôle est TOUJOURS "citoyen" à l'inscription publique (un agent/admin
+    est créé par un administrateur, jamais par auto-inscription).
+    """
 
-    def validate_email(self, value):
-        if Utilisateur.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Un compte avec cet email existe déjà.")
+    nom_complet = serializers.CharField(max_length=150)
+    email_ou_telephone = serializers.CharField(max_length=150)
+    quartier = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, validators=[validate_password])
+    accepte_conditions = serializers.BooleanField()
+    recevoir_alertes = serializers.BooleanField(required=False, default=True)
+
+    def validate_accepte_conditions(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "Vous devez accepter les conditions d'utilisation."
+            )
         return value
 
-    def validate(self, attrs):
-        if attrs["password"] != attrs["password2"]:
-            raise serializers.ValidationError({"password": "Les mots de passe ne correspondent pas."})
-        return attrs
+    def validate_email_ou_telephone(self, value):
+        is_email = bool(EMAIL_REGEX.match(value))
+        if is_email:
+            if Utilisateur.objects.filter(email__iexact=value).exists():
+                raise serializers.ValidationError(
+                    "Cette adresse email est déjà utilisée."
+                )
+        else:
+            if Utilisateur.objects.filter(telephone=value).exists():
+                raise serializers.ValidationError(
+                    "Ce numéro de téléphone est déjà utilisé."
+                )
+        return value
+
+    @staticmethod
+    def _generer_username(base):
+        """Génère un username unique à partir d'un email ou téléphone."""
+        base = re.sub(r"[^a-zA-Z0-9_]", "", base.split("@")[0]) or "user"
+        base = base.lower()[:25]
+        username = base
+        suffix = 0
+        while Utilisateur.objects.filter(username=username).exists():
+            suffix += 1
+            username = f"{base}{suffix}"
+        return username
 
     def create(self, validated_data):
-        validated_data.pop("password2")
-        password = validated_data.pop("password")
-        role = validated_data.get("role", Utilisateur.Role.CITOYEN)
+        nom_complet = validated_data["nom_complet"].strip()
+        identifiant = validated_data["email_ou_telephone"].strip()
+        is_email = bool(EMAIL_REGEX.match(identifiant))
 
-        user = Utilisateur(**validated_data)
-        user.set_password(password)
+        parts = nom_complet.split(" ", 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+
+        user = Utilisateur(
+            username=self._generer_username(identifiant),
+            first_name=first_name,
+            last_name=last_name,
+            email=identifiant if is_email else "",
+            telephone=None if is_email else identifiant,
+            quartier=validated_data.get("quartier", ""),
+            role=Utilisateur.Role.CITOYEN,
+        )
+        user.set_password(validated_data["password"])
         user.save()
 
-        # Créer le profil étendu selon le rôle
-        if role == Utilisateur.Role.CITOYEN:
-            Citoyen.objects.create(utilisateur=user)
-        elif role == Utilisateur.Role.AGENT:
-            # Le matricule sera assigné plus tard par un admin
-            Agent.objects.create(utilisateur=user, matricule=f"AGT-{user.id:05d}")
-        elif role == Utilisateur.Role.ADMIN:
-            Administrateur.objects.create(utilisateur=user)
+        Citoyen.objects.create(utilisateur=user)
+
+        # TODO (recevoir_alertes) : stocker la préférence quand le modèle
+        # de préférences de notification existera côté app `notifications`.
 
         return user
 
 
+# ---------------------------------------------------------------------------
+# Connexion — email OU téléphone dans un champ unique `identifiant`
+# ---------------------------------------------------------------------------
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """JWT enrichi avec les infos utilisateur dans la réponse."""
+    """
+    JWT — connexion via un champ unique `identifiant` (email ou téléphone),
+    au lieu de `username`. Réponse enrichie avec les infos utilisateur.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Remplace le champ "username" hérité par notre champ "identifiant".
+        # NB : on NE touche PAS à self.username_field (reste "username"),
+        # c'est la clé que simplejwt utilise en interne pour authenticate() —
+        # la changer casserait l'authentification.
+        self.fields.pop(self.username_field, None)
+        self.fields["identifiant"] = serializers.CharField()
 
     def validate(self, attrs):
+        identifiant = attrs.pop("identifiant", None)
+
+        is_email = bool(EMAIL_REGEX.match(identifiant or ""))
+        lookup = {"email__iexact": identifiant} if is_email else {"telephone": identifiant}
+
+        try:
+            user = Utilisateur.objects.get(**lookup)
+        except Utilisateur.DoesNotExist:
+            raise serializers.ValidationError(
+                {"detail": "Identifiants invalides."}
+            )
+
+        # Réinjecte le vrai username sous la clé attendue par simplejwt
+        # (self.username_field, toujours "username" ici) avant de déléguer
+        # à la validation standard, qui appelle authenticate() en interne.
+        attrs[self.username_field] = user.get_username()
         data = super().validate(attrs)
-        user = self.user
+
         data["user"] = {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "role": user.role,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
+            "id": self.user.id,
+            "username": self.user.username,
+            "email": self.user.email,
+            "role": self.user.role,
+            "first_name": self.user.first_name,
+            "last_name": self.user.last_name,
         }
         return data
+
+
+# ---------------------------------------------------------------------------
+# OTP — vérification email + renvoi de code
+# ---------------------------------------------------------------------------
+
+class VerifyEmailSerializer(serializers.Serializer):
+    """POST /api/auth/verify-email/ — email + code → email_verifie = True."""
+
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=10)
+
+    def validate(self, attrs):
+        try:
+            user = Utilisateur.objects.get(email__iexact=attrs["email"])
+        except Utilisateur.DoesNotExist:
+            raise serializers.ValidationError(
+                {"detail": "Aucun compte associé à cet email."}
+            )
+
+        otp = (
+            OTP.objects.filter(utilisateur=user, code=attrs["code"], verifie=False)
+            .order_by("-id")
+            .first()
+        )
+        if otp is None or otp.date_expiration < timezone.now():
+            raise serializers.ValidationError(
+                {"detail": "Code invalide ou expiré."}
+            )
+
+        attrs["user"] = user
+        attrs["otp"] = otp
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.validated_data["user"]
+        otp = self.validated_data["otp"]
+        otp.verifie = True
+        otp.save(update_fields=["verifie"])
+        user.email_verifie = True
+        user.save(update_fields=["email_verifie"])
+        return user
+
+
+class ResendOtpSerializer(serializers.Serializer):
+    """POST /api/auth/resend-otp/ — redemande un code OTP."""
+
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        if not Utilisateur.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(
+                "Aucun compte associé à cet email."
+            )
+        return value
