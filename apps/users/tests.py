@@ -5,15 +5,15 @@ Vérifie que chaque rôle accède uniquement à ce qu'il a le droit de faire.
 
 import pytest
 from django.contrib.auth import get_user_model
-from rest_framework.test import APIRequestFactory, APIClient
 from rest_framework import status
+from rest_framework.test import APIClient, APIRequestFactory
 
 from apps.users.models import Utilisateur
 from apps.users.permissions import (
-    IsCitoyen,
-    IsAgent,
     IsAdmin,
+    IsAgent,
     IsAgentOrAdmin,
+    IsCitoyen,
     IsCitoyenOrAdmin,
     IsOwnerOrAdmin,
 )

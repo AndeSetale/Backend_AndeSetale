@@ -2,7 +2,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Agent, Administrateur, Citoyen, Utilisateur
+from .models import Administrateur, Agent, Citoyen, Utilisateur
 
 
 class UtilisateurSerializer(serializers.ModelSerializer):
