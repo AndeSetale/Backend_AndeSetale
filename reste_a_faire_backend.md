@@ -1,135 +1,20 @@
 # Andë Sétal — Reste à faire pour un backend 100 % fonctionnel
 
-**Périmètre :** backend uniquement. IA et frontend exclus (gérés par tes coéquipiers).
-
-**Statut des corrections précédentes : ✅ appliquées et validées** (23/23 tests passent) :
-- Bug de duplication dans `incidents/serializers.py` corrigé.
-- Endpoints OTP (`verify-email`, `resend-otp`) créés.
-- Inscription alignée sur la maquette (`nom_complet`, `email_ou_telephone`, `quartier`, `password`).
-- Connexion par email/téléphone via `identifiant`.
-- Signalement accessible sans connexion (`signale_par = null` si anonyme).
-- `GET /api/incidents/my/` créé.
-
 Ce document couvre **tout ce qu'il reste**, classé par priorité.
 
+
+## Plan d'action suggéré
+
+| Sprint | Contenu | Pourquoi |
+|---|---|---|
+| **2** | Points 5 à 7 (permissions interventions, rapport, mes interventions) | Débloque l'app mobile agent | Moussa
+| **3** | Points 8 à 10 (CRUD agents, journal, dashboard complet) | Débloque le tableau de bord admin | Dado
+| **4** | Points 11 à 13 (tests, blacklist JWT, doc API) | Qualité avant mise en production | Dado
+
+Une fois les sprints 1 et 2 terminés, ton backend couvre l'intégralité des parcours visibles dans les 3 maquettes (web admin, mobile agent, mobile citoyen) — le sprint 3 est du "nice to have" pour le pilotage, le sprint 4 est de la robustesse.
+
+
 ---
-
-## 🟠 Priorité haute — fonctionnalités attendues par les maquettes
-
-### 1. Détail d'un incident — `GET /api/incidents/<id>/`
-
-N'existe pas encore. Nécessaire pour les écrans "Détail incidents" (web admin) et "Details" (mobile agent/citoyen).
-
-**À ajouter dans `apps/incidents/views.py` :**
-```python
-from rest_framework.generics import get_object_or_404
-
-class IncidentDetailView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, pk):
-        incident = get_object_or_404(
-            Incident.objects.prefetch_related("preuves"), pk=pk
-        )
-        serializer = IncidentSerializer(incident, context={"request": request})
-        return Response(serializer.data)
-```
-Route à ajouter dans `apps/incidents/urls.py` :
-```python
-path("<int:pk>/", IncidentDetailView.as_view(), name="incident-detail"),
-```
-
-### 2. Mise à jour d'un incident par un agent/admin — `PATCH /api/incidents/<id>/`
-
-Vu dans la maquette "Gestion de l'intervention" (changer statut, assigner un agent, définir la priorité, ajouter des notes). Le serializer `IncidentUpdateSerializer` existe déjà (ajouté dans la correction précédente) mais n'est branché nulle part.
-
-```python
-from .serializers import IncidentUpdateSerializer
-from apps.users.permissions import IsAgentOrAdmin
-
-class IncidentDetailView(APIView):
-    def get_permissions(self):
-        if self.request.method == "PATCH":
-            return [IsAgentOrAdmin()]
-        return [IsAuthenticated()]
-
-    def get(self, request, pk):
-        ...  # comme ci-dessus
-
-    def patch(self, request, pk):
-        incident = get_object_or_404(Incident, pk=pk)
-        serializer = IncidentUpdateSerializer(
-            incident, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(
-            IncidentSerializer(incident, context={"request": request}).data
-        )
-```
-
-### 3. Endpoint analyse IA — `POST /api/incidents/<id>/analyse/`
-
-Le modèle `AnalyseIA` et son serializer existent déjà, mais **aucune route ne les expose**. Ton coéquipier IA en aura besoin pour poster ses résultats — à créer même si tu ne fais pas l'IA toi-même, sinon il sera bloqué.
-
-```python
-from .models import AnalyseIA
-from .serializers import AnalyseIASerializer
-
-class AnalyseIAView(APIView):
-    # À restreindre à un compte de service dédié en prod (ex : clé API interne),
-    # IsAuthenticated est un minimum en attendant.
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, pk):
-        incident = get_object_or_404(Incident, pk=pk)
-        serializer = AnalyseIASerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        analyse, _ = AnalyseIA.objects.update_or_create(
-            incident=incident, defaults=serializer.validated_data
-        )
-        return Response(
-            AnalyseIASerializer(analyse).data, status=status.HTTP_201_CREATED
-        )
-```
-Route :
-```python
-path("<int:pk>/analyse/", AnalyseIAView.as_view(), name="incident-analyse"),
-```
-⚠️ Vérifie avec ton coéquipier IA le contrat exact des champs attendus (`type_detecte`, `score_confiance`, `niveau_urgence_detecte`, `description_generee`, `recommandations`) avant qu'il commence à coder contre cet endpoint.
-
-### 4. Filtres et pagination — actuellement inopérants
-
-`django_filters` et `DEFAULT_PAGINATION_CLASS` sont déclarés dans `REST_FRAMEWORK` (settings) mais **ne s'appliquent pas**, car tes vues sont des `APIView` classiques — seuls les `generics.ListAPIView` héritent automatiquement des filter/pagination backends.
-
-**Deux options :**
-- **Option A (rapide)** : migrer `IncidentListView.get` vers `generics.ListAPIView` + `filterset_fields`.
-- **Option B (garder APIView)** : appliquer manuellement les backends.
-
-Option A recommandée :
-```python
-from rest_framework import generics
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.filters import SearchFilter, OrderingFilter
-
-class IncidentListView(generics.ListCreateAPIView):
-    queryset = Incident.objects.prefetch_related("preuves").order_by("-date_creation")
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ["statut", "type", "niveau_urgence", "quartier"]
-    search_fields = ["description", "reference", "adresse"]
-    ordering_fields = ["date_creation", "niveau_urgence"]
-
-    def get_serializer_class(self):
-        return IncidentCreateSerializer if self.request.method == "POST" else IncidentSerializer
-
-    def get_permissions(self):
-        return [AllowAny()] if self.request.method == "POST" else [IsAuthenticated()]
-
-    def perform_create(self, serializer):
-        signale_par = self.request.user if self.request.user.is_authenticated else None
-        serializer.save(signale_par=signale_par)
-```
-Nécessaire pour la maquette "Carte des incidents" (filtres par type : Tous/Déchets/Canaux/Voirie) et "Gestion des incidents" (recherche, tri).
 
 ### 5. Permissions manquantes sur `interventions`
 
@@ -283,13 +168,3 @@ uv run python manage.py migrate
 
 ---
 
-## Plan d'action suggéré
-
-| Sprint | Contenu | Pourquoi |
-|---|---|---|
-| **1** | Points 1 à 4 (détail/update incident, endpoint analyse IA, filtres/pagination) | Débloque le frontend web (gestion des incidents) ET ton coéquipier IA |
-| **2** | Points 5 à 7 (permissions interventions, rapport, mes interventions) | Débloque l'app mobile agent |
-| **3** | Points 8 à 10 (CRUD agents, journal, dashboard complet) | Débloque le tableau de bord admin |
-| **4** | Points 11 à 13 (tests, blacklist JWT, doc API) | Qualité avant mise en production |
-
-Une fois les sprints 1 et 2 terminés, ton backend couvre l'intégralité des parcours visibles dans les 3 maquettes (web admin, mobile agent, mobile citoyen) — le sprint 3 est du "nice to have" pour le pilotage, le sprint 4 est de la robustesse.
