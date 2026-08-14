@@ -4,92 +4,62 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.generics import get_object_or_404
+from apps.users.permissions import IsAgentOrAdmin
+from .models import AnalyseIA
 
+from rest_framework import generics
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import SearchFilter, OrderingFilter
 from .models import Incident, Preuve
 from .serializers import (
     IncidentSerializer,
     IncidentCreateSerializer,
     PreuveSerializer,
     PreuveUploadSerializer,
+    IncidentUpdateSerializer,
+    AnalyseIASerializer,
 )
-
-
-class IncidentListView(APIView):
+# Classe pour lister et creer des incidents.
+class IncidentListView(generics.ListCreateAPIView):
     """
     GET  /api/incidents/  — liste tous les incidents (authentifié)
     POST /api/incidents/  — crée un incident (accessible SANS authentification)
     """
 
-    # La création doit être ouverte au public (signalement citoyen sans compte).
-    # La lecture de la liste complète reste réservée aux utilisateurs connectés.
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    queryset = Incident.objects.prefetch_related("preuves").order_by("-date_creation")
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ["statut", "type", "niveau_urgence", "quartier"]
+    search_fields = ["description", "reference", "adresse"]
+    ordering_fields = ["date_creation", "niveau_urgence"]
+
+    def get_serializer_class(self):
+        return IncidentCreateSerializer if self.request.method == "POST" else IncidentSerializer
 
     def get_permissions(self):
-        if self.request.method == "POST":
-            return [AllowAny()]
-        return [IsAuthenticated()]
+        return [AllowAny()] if self.request.method == "POST" else [IsAuthenticated()]
 
-    @extend_schema(
-        summary="Liste des incidents",
-        responses={200: IncidentSerializer(many=True)},
-        tags=["Incidents"],
-    )
-    def get(self, request):
-        incidents = (
-            Incident.objects.prefetch_related("preuves").order_by("-date_creation")
-        )
-        serializer = IncidentSerializer(
-            incidents, many=True, context={"request": request}
-        )
-        return Response(serializer.data)
+    def perform_create(self, serializer):
+        signale_par = self.request.user if self.request.user.is_authenticated else None
+        serializer.save(signale_par=signale_par)
 
-    @extend_schema(
-        summary="Créer un incident (avec ou sans compte)",
-        description=(
-            "Crée un nouvel incident. Accessible sans authentification : "
-            "si l'utilisateur est connecté, `signale_par` est rempli automatiquement, "
-            "sinon `signale_par` reste `null`. "
-            "Le champ `image` est optionnel : si fourni (multipart/form-data), "
-            "une Preuve PHOTO_INITIALE est créée automatiquement. "
-            "Taille max image : 5 MB. Formats : JPEG, PNG, WebP."
-        ),
-        request=IncidentCreateSerializer,
-        responses={
-            201: OpenApiResponse(
-                description="Incident créé avec succès",
-                response=IncidentSerializer,
-            ),
-            400: OpenApiResponse(description="Données invalides"),
-        },
-        tags=["Incidents"],
-    )
-    def post(self, request):
-        serializer = IncidentCreateSerializer(
-            data=request.data, context={"request": request}
-        )
+    def create(self, request, *args, **kwargs):
+        # On garde le comportement standard de CreateModelMixin, mais on
+        # sérialise la RÉPONSE avec IncidentSerializer (lecture complète :
+        # id, reference, preuves, analyse_ia...) plutôt qu'avec le serializer
+        # de création (write-only, qui n'expose pas ces champs).
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        # signale_par = utilisateur connecté, ou None si signalement anonyme
-        signale_par = request.user if request.user.is_authenticated else None
-        incident = serializer.save(signale_par=signale_par)
-
-        output = IncidentSerializer(incident, context={"request": request})
-        return Response(output.data, status=status.HTTP_201_CREATED)
+        self.perform_create(serializer)
+        output = IncidentSerializer(serializer.instance, context={"request": request})
+        headers = self.get_success_headers(output.data)
+        return Response(output.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class MesIncidentsView(APIView):
-    """
-    GET /api/incidents/my/ — liste uniquement les incidents du citoyen connecté.
-    """
-
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        summary="Mes signalements",
-        description="Retourne uniquement les incidents signalés par l'utilisateur connecté.",
-        responses={200: IncidentSerializer(many=True)},
-        tags=["Incidents"],
-    )
     def get(self, request):
         incidents = (
             Incident.objects.filter(signale_par=request.user)
@@ -103,37 +73,9 @@ class MesIncidentsView(APIView):
 
 
 class PreuveUploadView(APIView):
-    """
-    POST /api/incidents/preuves/upload/
-
-    Upload d'une photo de preuve pour un incident existant.
-    Corps multipart/form-data :
-      - incident_id  (integer)
-      - type         (PHOTO_INITIALE | PHOTO_AVANT | PHOTO_APRES)
-      - image        (fichier requis, < 5 MB, JPEG/PNG/WebP)
-    """
-
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
-    @extend_schema(
-        summary="Upload d'une photo de preuve",
-        description=(
-            "Upload multipart d'une image attachée à un incident existant. "
-            "L'image est OBLIGATOIRE sur cet endpoint. "
-            "Taille max : 5 MB. Formats acceptés : JPEG, PNG, WebP."
-        ),
-        request=PreuveUploadSerializer,
-        responses={
-            201: OpenApiResponse(
-                description="Preuve créée avec succès",
-                response=PreuveSerializer,
-            ),
-            400: OpenApiResponse(description="Données invalides"),
-            404: OpenApiResponse(description="Incident introuvable"),
-        },
-        tags=["Incidents"],
-    )
     def post(self, request):
         serializer = PreuveUploadSerializer(
             data=request.data, context={"request": request}
@@ -149,3 +91,47 @@ class PreuveUploadView(APIView):
 
         output = PreuveSerializer(preuve, context={"request": request})
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class IncidentDetailView(APIView):
+    """
+    GET   /api/incidents/<id>/  — détail d'un incident (authentifié)
+    PATCH /api/incidents/<id>/  — mise à jour par un agent/admin
+    """
+
+    def get_permissions(self):
+        if self.request.method == "PATCH":
+            return [IsAgentOrAdmin()]
+        return [IsAuthenticated()]
+
+    def get(self, request, pk):
+        incident = get_object_or_404(
+            Incident.objects.prefetch_related("preuves"), pk=pk
+        )
+        serializer = IncidentSerializer(incident, context={"request": request})
+        return Response(serializer.data)
+
+    def patch(self, request, pk):
+        incident = get_object_or_404(Incident, pk=pk)
+        serializer = IncidentUpdateSerializer(
+            incident, data=request.data, partial=True
+            )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            IncidentSerializer(incident, context={"request": request}).data 
+        )
+
+class AnalyseIAView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        incident = get_object_or_404(Incident, pk=pk)
+        serializer = AnalyseIASerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        analyse, _ = AnalyseIA.objects.update_or_create(
+            incident=incident, defaults=serializer.validated_data
+        )
+        return Response(
+            AnalyseIASerializer(analyse).data, status=status.HTTP_201_CREATED
+        )
