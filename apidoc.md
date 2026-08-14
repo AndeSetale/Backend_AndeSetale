@@ -18,8 +18,6 @@ Assure-toi d'être **sur le même réseau WiFi/LAN**.
 
 ## 2. Lancer le backend (côté Binetou)
 
-Binetou doit démarrer le serveur en exposant toutes les interfaces réseau :
-
 ```bash
 uv run python manage.py runserver 0.0.0.0:8000
 ```
@@ -30,12 +28,11 @@ uv run python manage.py runserver 0.0.0.0:8000
 
 ### 3.1 — Fichier d'environnement
 
-Dans `src/environments/environment.ts` :
-
 ```typescript
+// src/environments/environment.ts
 export const environment = {
   production: false,
-  apiUrl: 'http://192.168.1.111:8000/api'
+  apiUrl: 'http://192.168.1.123:8000/api'
 };
 ```
 
@@ -72,22 +69,46 @@ export class ApiService {
 }
 ```
 
-### 3.3 — Ajouter HttpClientModule
+### 3.3 — Intercepteur JWT (recommandé)
 
-Dans `app.module.ts` (ou `app.config.ts` pour standalone) :
+Avec cet intercepteur, plus besoin d'ajouter le header manuellement dans chaque appel :
 
 ```typescript
-import { HttpClientModule } from '@angular/common/http';
+// src/app/core/interceptors/auth.interceptor.ts
+import { Injectable } from '@angular/core';
+import { HttpInterceptor, HttpRequest, HttpHandler, HttpEvent } from '@angular/common/http';
+import { Observable } from 'rxjs';
 
-// Dans imports: [HttpClientModule]
+@Injectable()
+export class AuthInterceptor implements HttpInterceptor {
+  intercept(req: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      const cloned = req.clone({
+        setHeaders: { Authorization: `Bearer ${token}` }
+      });
+      return next.handle(cloned);
+    }
+    return next.handle(req);
+  }
+}
+```
+
+Enregistrer dans `app.module.ts` :
+```typescript
+import { HTTP_INTERCEPTORS } from '@angular/common/http';
+import { AuthInterceptor } from './core/interceptors/auth.interceptor';
+
+providers: [
+  { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true }
+]
 ```
 
 ---
 
 ## 4. Authentification JWT
 
-Tous les endpoints (sauf login et register) nécessitent un token JWT dans le header :
-
+Tous les endpoints protégés nécessitent le header :
 ```
 Authorization: Bearer <access_token>
 ```
@@ -99,33 +120,38 @@ POST /api/auth/register/
 Content-Type: application/json
 ```
 
-**Body :**
+**Body — contrat exact attendu :**
 ```json
 {
-  "username": "jean_dupont",
-  "email": "jean@example.com",
-  "first_name": "Jean",
-  "last_name": "Dupont",
+  "nom_complet": "Jean Dupont",
+  "email_ou_telephone": "jean@example.com",
+  "quartier": "Plateau",
   "password": "MotDePasse123!",
-  "password2": "MotDePasse123!",
-  "role": "CITOYEN",
-  "telephone": "771234567",
-  "quartier": "Plateau"
+  "accepte_conditions": true,
+  "recevoir_alertes": true
 }
 ```
 
-Valeurs possibles pour `role` : `CITOYEN`, `AGENT`, `ADMIN`
+> `email_ou_telephone` accepte une adresse email **ou** un numéro de téléphone.  
+> Le champ `quartier` est optionnel.  
+> Le rôle est toujours `citoyen` à l'inscription publique — les agents/admins sont créés par un administrateur.
 
 **Réponse 201 :**
 ```json
 {
-  "message": "Inscription réussie.",
+  "message": "Inscription réussie. Vérifiez votre email pour activer votre compte.",
   "user": {
     "id": 1,
-    "username": "jean_dupont",
+    "username": "jean",
     "email": "jean@example.com",
-    "role": "CITOYEN",
-    ...
+    "first_name": "Jean",
+    "last_name": "Dupont",
+    "role": "citoyen",
+    "telephone": null,
+    "quartier": "Plateau",
+    "photo_profil": null,
+    "email_verifie": false,
+    "date_joined": "2026-08-14T10:00:00Z"
   }
 }
 ```
@@ -142,10 +168,12 @@ Content-Type: application/json
 **Body :**
 ```json
 {
-  "username": "jean_dupont",
+  "identifiant": "jean@example.com",
   "password": "MotDePasse123!"
 }
 ```
+
+> `identifiant` = email ou numéro de téléphone (pas de champ `username`).
 
 **Réponse 200 :**
 ```json
@@ -154,16 +182,17 @@ Content-Type: application/json
   "refresh": "<jwt_refresh_token>",
   "user": {
     "id": 1,
-    "username": "jean_dupont",
+    "username": "jean",
     "email": "jean@example.com",
-    "role": "CITOYEN",
+    "role": "citoyen",
     "first_name": "Jean",
     "last_name": "Dupont"
   }
 }
 ```
 
-> **À stocker** : `access` dans `localStorage.setItem('access_token', ...)` et `refresh` dans `localStorage.setItem('refresh_token', ...)`
+> Stocker `access` et `refresh` dans `localStorage`.  
+> Le token `access` expire après **60 minutes**, le `refresh` après **7 jours**.
 
 ---
 
@@ -201,22 +230,81 @@ Authorization: Bearer <access_token>
 ```json
 {
   "id": 1,
-  "username": "jean_dupont",
+  "username": "jean",
   "email": "jean@example.com",
   "first_name": "Jean",
   "last_name": "Dupont",
-  "role": "CITOYEN",
-  "telephone": "771234567",
+  "role": "citoyen",
+  "telephone": null,
   "quartier": "Plateau",
   "photo_profil": null,
   "email_verifie": false,
-  "date_joined": "2026-08-12T10:00:00Z"
+  "date_joined": "2026-08-14T10:00:00Z"
 }
 ```
 
 ---
 
+### 4.5 — Vérifier l'email (OTP)
+
+```
+POST /api/auth/verify-email/
+Content-Type: application/json
+```
+
+**Body :**
+```json
+{
+  "email": "jean@example.com",
+  "code": "123456"
+}
+```
+
+**Réponse 200 :**
+```json
+{
+  "detail": "Email vérifié avec succès.",
+  "email_verifie": true
+}
+```
+
+---
+
+### 4.6 — Renvoyer un code OTP
+
+```
+POST /api/auth/resend-otp/
+Content-Type: application/json
+```
+
+**Body :**
+```json
+{
+  "email": "jean@example.com"
+}
+```
+
+**Réponse 200 :**
+```json
+{
+  "detail": "Nouveau code envoyé.",
+  "expires_in": 600
+}
+```
+
+> Si le cooldown de 60 s n'est pas écoulé, retourne `429` avec `retry_after` (secondes restantes).
+
+---
+
 ## 5. Incidents
+
+### Valeurs des champs énumérés
+
+| Champ | Valeurs acceptées |
+|---|---|
+| `type` | `DECHETS` · `CANAUX` · `VOIRIE` · `ECLAIRAGE_PUBLIC` · `ARBRE` · `FUITE_EAU` |
+| `statut` | `NOUVEAU` · `EN_COURS` · `RESOLU` |
+| `niveau_urgence` | `CRITIQUE` · `ELEVE` · `MODERE` · `ROUTINE` |
 
 ### 5.1 — Liste des incidents
 
@@ -225,36 +313,53 @@ GET /api/incidents/
 Authorization: Bearer <access_token>
 ```
 
-**Réponse 200 :**
+**Filtres disponibles (query params) :**
+
+| Paramètre | Exemple |
+|---|---|
+| `statut` | `?statut=EN_COURS` |
+| `type` | `?type=DECHETS` |
+| `niveau_urgence` | `?niveau_urgence=CRITIQUE` |
+| `quartier` | `?quartier=Médina` |
+| `search` | `?search=ordures` (description, référence, adresse) |
+| `ordering` | `?ordering=-date_creation` |
+| `page` | `?page=2` (20 items par page) |
+
+**Réponse 200 (paginée) :**
 ```json
-[
-  {
-    "id": 1,
-    "reference": "INC-00001",
-    "type": "DECHET",
-    "description": "Tas d'ordures devant l'école",
-    "statut": "SIGNALE",
-    "niveau_urgence": "MOYEN",
-    "quartier": "Médina",
-    "adresse": "Rue 12",
-    "latitude": 14.6928,
-    "longitude": -17.4467,
-    "date_creation": "2026-08-12T09:00:00Z",
-    "date_estimation_heures": 24,
-    "commentaire": "",
-    "signale_par": 1,
-    "assigne_a": null,
-    "preuves": [
-      {
-        "id": 1,
-        "type": "PHOTO_INITIALE",
-        "image_url": "http://192.168.1.111:8000/media/preuves/photo.jpg",
-        "date_ajout": "2026-08-12T09:00:00Z"
-      }
-    ],
-    "analyse_ia": null
-  }
-]
+{
+  "count": 42,
+  "next": "http://192.168.1.111:8000/api/incidents/?page=2",
+  "previous": null,
+  "results": [
+    {
+      "id": 1,
+      "reference": "INC-3A7F2B1C",
+      "type": "DECHETS",
+      "description": "Tas d'ordures devant l'école",
+      "statut": "NOUVEAU",
+      "niveau_urgence": "MODERE",
+      "quartier": "Médina",
+      "adresse": "Rue 12",
+      "latitude": 14.6928,
+      "longitude": -17.4467,
+      "date_creation": "2026-08-14T09:00:00Z",
+      "date_estimation_heures": 24,
+      "commentaire": null,
+      "signale_par": 1,
+      "assigne_a": null,
+      "preuves": [
+        {
+          "id": 1,
+          "type": "PHOTO_INITIALE",
+          "image_url": "http://192.168.1.111:8000/media/preuves/incident_1/photo.jpg",
+          "date_ajout": "2026-08-14T09:00:00Z"
+        }
+      ],
+      "analyse_ia": null
+    }
+  ]
+}
 ```
 
 ---
@@ -263,16 +368,18 @@ Authorization: Bearer <access_token>
 
 ```
 POST /api/incidents/
-Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
+
+> Cet endpoint est **public** (pas d'authentification requise).  
+> Si l'utilisateur est connecté, `signale_par` est renseigné automatiquement.
 
 **Body :**
 ```json
 {
-  "type": "DECHET",
+  "type": "DECHETS",
   "description": "Tas d'ordures devant l'école",
-  "niveau_urgence": "MOYEN",
+  "niveau_urgence": "MODERE",
   "quartier": "Médina",
   "adresse": "Rue 12",
   "latitude": 14.6928,
@@ -282,48 +389,89 @@ Content-Type: application/json
 }
 ```
 
-Valeurs `type` : `DECHET`, `INONDATION`, `DEGRADATION`, `AUTRE`  
-Valeurs `niveau_urgence` : `FAIBLE`, `MOYEN`, `ELEVE`, `CRITIQUE`
+**Réponse 201 :** objet `Incident` complet (même format que le détail).
 
 ---
 
-### 5.3 — Créer un incident (avec image)
+### 5.3 — Créer un incident avec image
 
 ```
 POST /api/incidents/
-Authorization: Bearer <access_token>
 Content-Type: multipart/form-data
 ```
 
-**Body (FormData) :**
+**FormData :**
 ```
-type          = DECHET
-description   = Tas d'ordures devant l'école
-niveau_urgence = MOYEN
-quartier      = Médina
-adresse       = Rue 12
-latitude      = 14.6928
-longitude     = -17.4467
-image         = [fichier image, max 5 MB, JPEG/PNG/WebP]
+type              = DECHETS
+description       = Tas d'ordures devant l'école
+niveau_urgence    = MODERE
+quartier          = Médina
+adresse           = Rue 12
+latitude          = 14.6928
+longitude         = -17.4467
+image             = [fichier, max 5 MB, JPEG/PNG/WebP]
 ```
+
+Si fournie, l'image crée automatiquement une `Preuve` de type `PHOTO_INITIALE`.
 
 **Exemple Angular :**
 ```typescript
-createIncidentWithImage(data: any, imageFile: File) {
+createIncident(data: any, imageFile?: File) {
   const formData = new FormData();
   Object.keys(data).forEach(key => formData.append(key, data[key]));
-  formData.append('image', imageFile);
+  if (imageFile) formData.append('image', imageFile);
 
-  return this.http.post(`${this.base}/api/incidents/`, formData, {
-    headers: new HttpHeaders({ Authorization: `Bearer ${localStorage.getItem('access_token')}` })
-    // Ne PAS définir Content-Type manuellement — Angular le gère automatiquement en multipart
-  });
+  // Ne PAS définir Content-Type — Angular le gère automatiquement en multipart
+  return this.http.post(`${this.base}/incidents/`, formData);
 }
 ```
 
 ---
 
-### 5.4 — Uploader une photo de preuve (incident existant)
+### 5.4 — Détail d'un incident
+
+```
+GET /api/incidents/{id}/
+Authorization: Bearer <access_token>
+```
+
+**Réponse 200 :** objet `Incident` complet avec `preuves` et `analyse_ia`.
+
+---
+
+### 5.5 — Mettre à jour un incident (Agent / Admin)
+
+```
+PATCH /api/incidents/{id}/
+Authorization: Bearer <access_token>   (rôle agent ou admin requis)
+Content-Type: application/json
+```
+
+**Body (tous les champs sont optionnels) :**
+```json
+{
+  "statut": "EN_COURS",
+  "niveau_urgence": "CRITIQUE",
+  "assigne_a": 3,
+  "commentaire": "Équipe dépêchée sur place.",
+  "date_estimation_heures": 12
+}
+```
+
+---
+
+### 5.6 — Mes incidents
+
+```
+GET /api/incidents/my/
+Authorization: Bearer <access_token>
+```
+
+Retourne uniquement les incidents signalés par l'utilisateur connecté.
+
+---
+
+### 5.7 — Uploader une photo de preuve
 
 ```
 POST /api/incidents/preuves/upload/
@@ -331,11 +479,11 @@ Authorization: Bearer <access_token>
 Content-Type: multipart/form-data
 ```
 
-**Body (FormData) :**
+**FormData :**
 ```
 incident_id = 1
 type        = PHOTO_AVANT    (PHOTO_INITIALE | PHOTO_AVANT | PHOTO_APRES)
-image       = [fichier image, obligatoire, max 5 MB, JPEG/PNG/WebP]
+image       = [fichier, obligatoire, max 5 MB, JPEG/PNG/WebP]
 ```
 
 **Réponse 201 :**
@@ -343,14 +491,48 @@ image       = [fichier image, obligatoire, max 5 MB, JPEG/PNG/WebP]
 {
   "id": 2,
   "type": "PHOTO_AVANT",
-  "image_url": "http://192.168.1.111:8000/media/preuves/photo_avant.jpg",
-  "date_ajout": "2026-08-12T11:00:00Z"
+  "image_url": "http://192.168.1.111:8000/media/preuves/incident_1/photo_avant.jpg",
+  "date_ajout": "2026-08-14T11:00:00Z"
 }
 ```
 
 ---
 
+### 5.8 — Soumettre une analyse IA
+
+Endpoint réservé au service IA du coéquipier.
+
+```
+POST /api/incidents/{id}/analyse/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+**Body :**
+```json
+{
+  "type_detecte": "DECHETS",
+  "score_confiance": 0.93,
+  "niveau_urgence_detecte": "MODERE",
+  "description_generee": "Accumulation de déchets ménagers.",
+  "recommandations": "Intervention sous 24h."
+}
+```
+
+> `score_confiance` doit être entre `0.0` et `1.0`.  
+> Si une analyse existe déjà pour cet incident, elle est mise à jour.
+
+---
+
 ## 6. Interventions
+
+### Valeurs du champ `statut`
+
+| Valeur | Signification |
+|---|---|
+| `EN_ATTENTE` | En attente d'affectation |
+| `EN_COURS` | Intervention en cours |
+| `TERMINEE` | Intervention clôturée |
 
 ### 6.1 — Liste des interventions
 
@@ -364,11 +546,11 @@ Authorization: Bearer <access_token>
 [
   {
     "id": 1,
-    "numero_suivi": "INT-00001",
+    "numero_suivi": "INT-4C2A8F1E",
     "incident": 1,
     "agent": 2,
     "statut": "EN_COURS",
-    "date_debut": "2026-08-12T08:00:00Z",
+    "date_debut": "2026-08-14T08:00:00Z",
     "date_fin": null,
     "rapport": null
   }
@@ -382,6 +564,27 @@ Authorization: Bearer <access_token>
 ```
 GET /api/interventions/{id}/
 Authorization: Bearer <access_token>
+```
+
+**Réponse 200 :** objet `Intervention` complet avec `rapport` si disponible.
+
+```json
+{
+  "id": 1,
+  "numero_suivi": "INT-4C2A8F1E",
+  "incident": 1,
+  "agent": 2,
+  "statut": "TERMINEE",
+  "date_debut": "2026-08-14T08:00:00Z",
+  "date_fin": "2026-08-14T14:30:00Z",
+  "rapport": {
+    "id": 1,
+    "contenu_pdf": null,
+    "taille_fichier_mo": null,
+    "statut": "VALIDE",
+    "date_envoi": "2026-08-14T14:35:00Z"
+  }
+}
 ```
 
 ---
@@ -399,13 +602,15 @@ Content-Type: application/json
 {
   "incident": 1,
   "agent": 2,
-  "statut": "PLANIFIEE",
-  "date_debut": "2026-08-13T08:00:00Z",
+  "statut": "EN_ATTENTE",
+  "date_debut": "2026-08-15T08:00:00Z",
   "date_fin": null
 }
 ```
 
-Valeurs `statut` : `PLANIFIEE`, `EN_COURS`, `TERMINEE`, `ANNULEE`
+> `numero_suivi` est généré automatiquement (`INT-XXXXXXXX`).
+
+**Réponse 201 :** objet `Intervention` complet.
 
 ---
 
@@ -421,7 +626,8 @@ Content-Type: application/json
 ```json
 {
   "statut": "TERMINEE",
-  "date_fin": "2026-08-13T14:00:00Z"
+  "date_fin": "2026-08-15T14:00:00Z",
+  "agent": 3
 }
 ```
 
@@ -436,18 +642,27 @@ GET /api/notifications/
 Authorization: Bearer <access_token>
 ```
 
-**Réponse 200 :**
+**Réponse 200 (non-lues en premier) :**
 ```json
 [
   {
     "id": 1,
-    "titre": "Incident mis à jour",
-    "message": "Votre incident INC-00001 est maintenant EN_COURS.",
+    "type": "EMAIL",
+    "contenu": "Votre incident INC-3A7F2B1C est maintenant EN_COURS.",
     "lu": false,
-    "date_envoi": "2026-08-12T10:30:00Z"
+    "date_envoi": "2026-08-14T10:30:00Z"
+  },
+  {
+    "id": 2,
+    "type": "PUSH",
+    "contenu": "Un agent a été assigné à votre signalement.",
+    "lu": true,
+    "date_envoi": "2026-08-13T08:00:00Z"
   }
 ]
 ```
+
+> Valeurs de `type` : `PUSH` · `EMAIL` · `SMS`
 
 ---
 
@@ -482,6 +697,8 @@ Content-Type: application/json
 }
 ```
 
+> Seules les notifications appartenant à l'utilisateur connecté et actuellement non lues sont mises à jour.
+
 **Réponse 200 :**
 ```json
 {
@@ -500,50 +717,51 @@ GET /api/dashboard/stats/
 Authorization: Bearer <access_token>
 ```
 
----
-
-## 9. Codes d'erreur courants
-
-| Code | Signification |
-|------|--------------|
-| `401` | Token manquant ou expiré → relancer `/api/auth/token/refresh/` |
-| `400` | Données invalides → voir le champ `detail` ou les champs en erreur |
-| `403` | Accès interdit (mauvais rôle) |
-| `404` | Ressource introuvable |
-
----
-
-## 10. Intercepteur Angular pour le token (recommandé)
-
-```typescript
-// src/app/core/interceptors/auth.interceptor.ts
-import { Injectable } from '@angular/core';
-import { HttpInterceptor, HttpRequest, HttpHandler, HttpEvent } from '@angular/common/http';
-import { Observable } from 'rxjs';
-
-@Injectable()
-export class AuthInterceptor implements HttpInterceptor {
-  intercept(req: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      const cloned = req.clone({
-        setHeaders: { Authorization: `Bearer ${token}` }
-      });
-      return next.handle(cloned);
-    }
-    return next.handle(req);
-  }
+**Réponse 200 :**
+```json
+{
+  "signalements": {
+    "total": 142,
+    "en_cours": 38,
+    "resolus": 91,
+    "urgents": 17
+  },
+  "incidents_par_statut": [
+    { "statut": "EN_COURS", "count": 38 },
+    { "statut": "NOUVEAU",  "count": 13 },
+    { "statut": "RESOLU",   "count": 91 }
+  ],
+  "agents_disponibles": 6
 }
 ```
 
-Enregistrer dans `app.module.ts` :
-```typescript
-import { HTTP_INTERCEPTORS } from '@angular/common/http';
-import { AuthInterceptor } from './core/interceptors/auth.interceptor';
+> `urgents` = incidents avec `niveau_urgence` = `CRITIQUE` ou `ELEVE`.
 
-providers: [
-  { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true }
-]
+---
+
+## 9. Codes d'erreur
+
+| Code | Signification | Action Angular |
+|---|---|---|
+| `200` | Succès | — |
+| `201` | Ressource créée | — |
+| `400` | Données invalides | Afficher les messages d'erreur par champ |
+| `401` | Token manquant ou expiré | Appeler `/api/auth/token/refresh/` puis réessayer |
+| `403` | Accès interdit (mauvais rôle) | Rediriger vers page d'accueil |
+| `404` | Ressource introuvable | Afficher message d'erreur |
+| `429` | Trop de requêtes (OTP) | Afficher `retry_after` secondes restantes |
+
+**Format d'erreur 400 :**
+```json
+{
+  "email_ou_telephone": ["Cette adresse email est déjà utilisée."],
+  "password": ["Ce mot de passe est trop courant."]
+}
 ```
 
-Avec l'intercepteur en place, plus besoin d'ajouter le header manuellement dans chaque appel.
+**Format d'erreur 401/403 :**
+```json
+{
+  "detail": "Les informations d'authentification n'ont pas été fournies."
+}
+```

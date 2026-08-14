@@ -31,36 +31,39 @@ Backend_AndeSetale/
 ├── apps/
 │   ├── users/              # Utilisateurs, rôles, OTP, permissions
 │   │   ├── models.py       # Utilisateur, Citoyen, Agent, Administrateur, OTP
-│   │   ├── serializers.py  # RegisterSerializer, CustomTokenObtainPairSerializer
-│   │   ├── views.py        # RegisterView, LoginView, MeView
+│   │   ├── serializers.py  # RegisterSerializer, CustomTokenObtainPairSerializer, VerifyEmailSerializer
+│   │   ├── views.py        # RegisterView, LoginView, MeView, VerifyEmailView, ResendOtpView
 │   │   ├── urls.py         # /api/auth/*
-│   │   ├── permissions.py  # IsCitoyen, IsAgent, IsAdmin, IsOwnerOrAdmin...
+│   │   ├── permissions.py  # IsCitoyen, IsAgent, IsAdmin, IsAgentOrAdmin, IsCitoyenOrAdmin, IsOwnerOrAdmin
+│   │   ├── otp_utils.py    # Génération et envoi OTP par email
 │   │   ├── admin.py        # Interface d'administration
 │   │   └── tests.py        # 23 tests de permissions
 │   ├── incidents/          # Incidents, preuves, analyse IA, journal
-│   │   ├── models.py       # Incident, Preuve, AnalyseIA, JournalActivite
-│   │   ├── serializers.py  # IncidentSerializer, PreuveUploadSerializer, AnalyseIASerializer
-│   │   ├── views.py        # IncidentListView, PreuveUploadView
+│   │   ├── models.py       # Incident, Preuve (ImageField), AnalyseIA, JournalActivite
+│   │   ├── serializers.py  # IncidentSerializer/Create/Update, PreuveUpload, AnalyseIASerializer
+│   │   ├── views.py        # IncidentListView, IncidentDetailView, PreuveUploadView, MesIncidentsView, AnalyseIAView
 │   │   └── urls.py         # /api/incidents/*
 │   ├── interventions/      # Interventions terrain et rapports
 │   │   ├── models.py       # Intervention, Rapport
-│   │   ├── serializers.py  # InterventionSerializer, InterventionCreateSerializer
+│   │   ├── serializers.py  # InterventionSerializer/Create/Update, RapportSerializer
 │   │   ├── views.py        # InterventionListView, InterventionDetailView
 │   │   └── urls.py         # /api/interventions/*
 │   ├── notifications/      # Notifications PUSH / EMAIL / SMS
 │   │   ├── models.py       # Notification
-│   │   ├── views.py        # NotificationListView, MarkReadView, UnreadCountView
+│   │   ├── serializers.py  # NotificationSerializer, NotificationMarkReadSerializer
+│   │   ├── views.py        # NotificationListView, NotificationMarkReadView, NotificationUnreadCountView
 │   │   └── urls.py         # /api/notifications/*
 │   └── dashboard/          # Statistiques agrégées
+│       ├── serializers.py  # DashboardStatsSerializer
 │       ├── views.py        # DashboardStatsView
 │       └── urls.py         # /api/dashboard/*
 ├── config/
 │   ├── settings/
-│   │   ├── base.py         # Settings communs (DB, DRF, JWT, CORS, MAILERS...)
+│   │   ├── base.py         # Settings communs (DB, DRF, JWT, CORS, MAILERS…)
 │   │   ├── dev.py          # Debug toolbar
-│   │   ├── prod.py         # HTTPS, HSTS, SMTP via MAILERS
+│   │   ├── prod.py         # HTTPS, HSTS, SMTP
 │   │   └── test.py         # SQLite mémoire, passwords rapides
-│   ├── urls.py             # Routes racine + debug toolbar
+│   ├── urls.py             # Routes racine + media + debug toolbar
 │   ├── api_urls.py         # Préfixe /api/
 │   ├── wsgi.py
 │   └── asgi.py
@@ -92,7 +95,7 @@ uv sync
 
 # 3. Créer le fichier d'environnement
 cp .env.example .env
-# Remplir les valeurs dans .env (DB_NAME, DB_USER, DB_PASSWORD...)
+# Remplir les valeurs dans .env (DB_NAME, DB_USER, DB_PASSWORD…)
 
 # 4. Appliquer les migrations
 uv run python manage.py migrate
@@ -117,7 +120,7 @@ Copier `.env.example` en `.env` et remplir :
 |---|---|---|
 | `SECRET_KEY` | Clé secrète Django | `une-longue-chaine-aleatoire` |
 | `DEBUG` | Mode debug | `True` (dev) / `False` (prod) |
-| `ALLOWED_HOSTS` | Hôtes autorisés | `127.0.0.1,localhost,192.168.1.111,0.0.0.0` |
+| `ALLOWED_HOSTS` | Hôtes autorisés | `127.0.0.1,localhost,192.168.1.111` |
 | `DB_NAME` | Nom de la base MySQL | `ande_setal` |
 | `DB_USER` | Utilisateur MySQL | `ande_user` |
 | `DB_PASSWORD` | Mot de passe MySQL | `votre_mdp` |
@@ -149,8 +152,6 @@ uv run python manage.py runserver 0.0.0.0:8000
 
 > `0.0.0.0:8000` est l'adresse d'**écoute** — ne pas l'ouvrir dans un navigateur. Utiliser l'IP locale à la place.
 
-Voir `apidoc.md` pour la documentation complète dédiée au frontend Angular.
-
 ---
 
 ## Endpoints disponibles
@@ -159,18 +160,24 @@ Voir `apidoc.md` pour la documentation complète dédiée au frontend Angular.
 
 | Méthode | URL | Auth | Description |
 |---|---|---|---|
-| POST | `/api/auth/register/` | Public | Inscription (crée le profil selon le rôle) |
-| POST | `/api/auth/login/` | Public | Connexion — retourne access + refresh + user |
+| POST | `/api/auth/register/` | Public | Inscription citoyen (nom_complet, email_ou_telephone, quartier, password…) |
+| POST | `/api/auth/login/` | Public | Connexion via identifiant (email ou téléphone) — retourne access + refresh + user |
 | POST | `/api/auth/token/refresh/` | Public | Renouveler l'access token |
 | GET | `/api/auth/me/` | Bearer JWT | Profil de l'utilisateur connecté |
+| POST | `/api/auth/verify-email/` | Public | Vérifier le code OTP reçu par email |
+| POST | `/api/auth/resend-otp/` | Public | Renvoyer un code OTP (cooldown 60 s) |
 
 ### Incidents
 
 | Méthode | URL | Auth | Description |
 |---|---|---|---|
-| GET | `/api/incidents/` | Bearer JWT | Liste tous les incidents avec leurs preuves |
-| POST | `/api/incidents/` | Bearer JWT | Créer un incident (JSON ou multipart avec image) |
-| POST | `/api/incidents/preuves/upload/` | Bearer JWT | Uploader une photo de preuve |
+| GET | `/api/incidents/` | Bearer JWT | Liste tous les incidents (filtrables, paginés) |
+| POST | `/api/incidents/` | Public | Créer un incident (JSON ou multipart avec image optionnelle) |
+| GET | `/api/incidents/{id}/` | Bearer JWT | Détail complet d'un incident |
+| PATCH | `/api/incidents/{id}/` | Agent / Admin | Mise à jour partielle (statut, assignation, urgence…) |
+| GET | `/api/incidents/my/` | Bearer JWT | Mes incidents (signalés par l'utilisateur connecté) |
+| POST | `/api/incidents/preuves/upload/` | Bearer JWT | Uploader une photo de preuve sur un incident existant |
+| POST | `/api/incidents/{id}/analyse/` | Bearer JWT | Soumettre le résultat d'analyse IA |
 
 ### Interventions
 
@@ -179,7 +186,7 @@ Voir `apidoc.md` pour la documentation complète dédiée au frontend Angular.
 | GET | `/api/interventions/` | Bearer JWT | Liste toutes les interventions |
 | POST | `/api/interventions/` | Bearer JWT | Créer une intervention |
 | GET | `/api/interventions/{id}/` | Bearer JWT | Détail d'une intervention |
-| PATCH | `/api/interventions/{id}/` | Bearer JWT | Mise à jour partielle (statut, dates) |
+| PATCH | `/api/interventions/{id}/` | Bearer JWT | Mise à jour partielle (statut, agent, dates) |
 
 ### Notifications
 
@@ -187,13 +194,13 @@ Voir `apidoc.md` pour la documentation complète dédiée au frontend Angular.
 |---|---|---|---|
 | GET | `/api/notifications/` | Bearer JWT | Mes notifications (non-lues en premier) |
 | GET | `/api/notifications/unread-count/` | Bearer JWT | Nombre de notifications non lues |
-| POST | `/api/notifications/mark-read/` | Bearer JWT | Marquer des notifications comme lues |
+| POST | `/api/notifications/mark-read/` | Bearer JWT | Marquer une liste de notifications comme lues |
 
 ### Dashboard
 
 | Méthode | URL | Auth | Description |
 |---|---|---|---|
-| GET | `/api/dashboard/stats/` | Bearer JWT | Statistiques globales |
+| GET | `/api/dashboard/stats/` | Bearer JWT | Statistiques globales (totaux, répartition par statut, agents disponibles) |
 
 ### Documentation
 
@@ -210,30 +217,30 @@ Voir `apidoc.md` pour la documentation complète dédiée au frontend Angular.
 ### users
 | Modèle | Description |
 |---|---|
-| `Utilisateur` | Modèle auth principal (AbstractUser) — rôle CITOYEN / AGENT / ADMIN |
+| `Utilisateur` | Modèle auth principal (AbstractUser) — rôle `citoyen` / `agent` / `admin` |
 | `Citoyen` | Profil étendu citoyen (nombre_signalements, nombre_resolus) |
-| `Agent` | Profil étendu agent (matricule, spécialisation, scores) |
+| `Agent` | Profil étendu agent (matricule, spécialisation, scores de performance) |
 | `Administrateur` | Profil étendu admin (niveau_acces) |
-| `OTP` | Code de vérification temporaire |
+| `OTP` | Code de vérification temporaire (validité 10 min, cooldown 60 s) |
 
 ### incidents
 | Modèle | Description |
 |---|---|
-| `Incident` | Signalement avec type, statut, urgence, géolocalisation |
-| `Preuve` | Photo attachée à un incident (PHOTO_INITIALE / PHOTO_AVANT / PHOTO_APRES) |
-| `AnalyseIA` | Résultat d'analyse automatique (score confiance, recommandations) |
+| `Incident` | Signalement avec type, statut, niveau urgence, géolocalisation, référence auto |
+| `Preuve` | Photo attachée à un incident — upload `ImageField` (PHOTO_INITIALE / PHOTO_AVANT / PHOTO_APRES) |
+| `AnalyseIA` | Résultat d'analyse automatique (type détecté, score confiance, recommandations) |
 | `JournalActivite` | Traçabilité de toutes les actions |
 
 ### interventions
 | Modèle | Description |
 |---|---|
-| `Intervention` | Intervention terrain (PLANIFIEE / EN_COURS / TERMINEE / ANNULEE) |
+| `Intervention` | Intervention terrain (EN_ATTENTE / EN_COURS / TERMINEE) — numéro de suivi auto |
 | `Rapport` | Rapport de clôture d'une intervention |
 
 ### notifications
 | Modèle | Description |
 |---|---|
-| `Notification` | Notification PUSH / EMAIL / SMS |
+| `Notification` | Notification PUSH / EMAIL / SMS — champ `lu` géré par l'API |
 
 ---
 
@@ -255,6 +262,20 @@ from apps.users.permissions import IsAgentOrAdmin
 class MaView(generics.ListAPIView):
     permission_classes = [IsAgentOrAdmin]
 ```
+
+---
+
+## Filtres disponibles sur `/api/incidents/`
+
+| Paramètre | Type | Exemple |
+|---|---|---|
+| `statut` | query | `?statut=EN_COURS` |
+| `type` | query | `?type=DECHETS` |
+| `niveau_urgence` | query | `?niveau_urgence=CRITIQUE` |
+| `quartier` | query | `?quartier=Médina` |
+| `search` | query | `?search=ordures` (description, référence, adresse) |
+| `ordering` | query | `?ordering=-date_creation` |
+| `page` | query | `?page=2` (pagination, 20 items/page) |
 
 ---
 
@@ -299,7 +320,6 @@ class MaView(generics.ListAPIView):
 | `git add <fichiers>` | Stager des fichiers spécifiques |
 | `git commit -m "feat(scope): message"` | Committer avec convention |
 | `git push -u origin feature/BE-00X-nom` | Pousser une nouvelle branche |
-| `git push` | Pousser sur la branche courante |
 | `git log --oneline -10` | Historique compact |
 
 ---
@@ -319,48 +339,65 @@ chore(scope):    tâches de maintenance
 
 ## Branches
 
-| Branche | Description |
-|---|---|
-| `main` | Code stable en production |
-| `develop` | Branche d'intégration |
-| `feature/BE-001-django-init` | Initialisation projet + modèles complets |
-| `feature/BE-004-auth-jwt` | Authentification JWT |
-| `feature/BE-005-permissions` | Permissions DRF par rôle |
+| Branche | Statut | Description |
+|---|---|---|
+| `main` | stable | Code en production |
+| `develop` | actif | Branche d'intégration principale |
+| `feature/BE-001-django-init` | mergée | Initialisation projet + modèles complets |
+| `feature/BE-004-auth-jwt` | mergée | Authentification JWT |
+| `feature/BE-005-permissions` | mergée | Permissions DRF par rôle |
+| `feature/BE-011-upload-photo` | mergée | Upload photos (ImageField, validation 5 MB) |
+| `feature/BE-018-dashboard-stats` | mergée | Dashboard stats superviseur |
+| `feature/BE-0018-api-dashboard-superviseur` | mergée | API Dashboard superviseur |
 
 ---
 
 ## Ce qui a été réalisé
 
 ### BE-001 — Initialisation du projet ✅
-- Structure Django 6.1 avec `uv` (pas de `requirements.txt`)
+- Structure Django 6.1 avec `uv`
 - DRF configuré avec JWT, Swagger, CORS, filtres, pagination
 - Settings split : `base.py` / `dev.py` / `prod.py` / `test.py`
-- Tous les modèles du diagramme de classe implémentés
-- Migrations propres appliquées sur MySQL
+- Tous les modèles implémentés, migrations appliquées sur MySQL
 - Admins enregistrés avec filtres et inlines
 
 ### BE-004 — Authentification JWT ✅
-- `POST /api/auth/register/` — inscription multi-rôle avec création profil automatique
-- `POST /api/auth/login/` — retourne access (60 min) + refresh (7 jours) + infos user
-- `POST /api/auth/token/refresh/` — renouvellement du token
+- `POST /api/auth/register/` — inscription citoyen, contrat maquette Angular (nom_complet, email_ou_telephone…)
+- `POST /api/auth/login/` — connexion par email ou téléphone, retourne access (60 min) + refresh (7 j) + user
+- `POST /api/auth/token/refresh/` — renouvellement token
 - `GET /api/auth/me/` — profil utilisateur connecté
-- Serializers de validation (password match, email unique, force du mot de passe)
-- Tous les endpoints documentés dans Swagger
+- `POST /api/auth/verify-email/` — vérification OTP par email
+- `POST /api/auth/resend-otp/` — renvoi OTP avec cooldown 60 s
 
 ### BE-005 — Permissions par rôle ✅
 - 6 classes de permissions (IsCitoyen, IsAgent, IsAdmin, IsAgentOrAdmin, IsCitoyenOrAdmin, IsOwnerOrAdmin)
 - 23 tests unitaires et d'intégration — tous passent
-- Settings de test avec SQLite en mémoire (pas de dépendance MySQL pour les tests)
+- Settings de test SQLite en mémoire (pas de dépendance MySQL)
 
-### BE-006 — Incidents, Interventions, Notifications, Dashboard ✅
-- CRUD incidents avec upload photo multipart (max 5 MB, JPEG/PNG/WebP)
-- Upload de preuves (PHOTO_INITIALE / PHOTO_AVANT / PHOTO_APRES)
-- Contrat AnalyseIA exposé pour le service IA
-- CRUD interventions avec mise à jour partielle (PATCH)
-- Notifications avec compteur non-lues et marquage en lot
-- Endpoint stats dashboard
-- Documentation API frontend dans `apidoc.md`
+### BE-011 — Upload photos ✅
+- `Preuve.image` migré de `CharField(url)` vers `ImageField` (upload physique)
+- Validation : max 5 MB, formats JPEG/PNG/WebP
+- `POST /api/incidents/preuves/upload/` — upload multipart sur incident existant
+- `POST /api/incidents/` — image optionnelle incluse à la création (PHOTO_INITIALE auto)
+- URLs absolues construites avec `request.build_absolute_uri`
+
+### BE-006 — CRUD Incidents & Interventions ✅
+- `GET/POST /api/incidents/` avec filtres (statut, type, urgence, quartier), recherche, pagination
+- `GET/PATCH /api/incidents/{id}/` — détail et mise à jour par agent/admin
+- `GET /api/incidents/my/` — incidents du citoyen connecté
+- `POST /api/incidents/{id}/analyse/` — endpoint pour le service IA (update_or_create)
+- CRUD interventions complet avec `InterventionCreateSerializer` / `InterventionUpdateSerializer`
+- Numéro de suivi auto généré (`INT-XXXXXXXX`)
+
+### BE-018 — Dashboard superviseur ✅
+- `GET /api/dashboard/stats/` — totaux signalements, répartition par statut, agents disponibles
+- Agrégats optimisés (4 requêtes groupées)
+
+### Notifications ✅
+- `GET /api/notifications/` — liste non-lues en premier
+- `GET /api/notifications/unread-count/` — compteur
+- `POST /api/notifications/mark-read/` — marquage en lot par IDs
 
 ### Corrections ✅
-- Fix conflit `EMAIL_BACKEND` vs `MAILERS` (Django 6.1) dans `dev.py` et `prod.py`
+- Fix conflit `EMAIL_BACKEND` vs `MAILERS` (Django 6.1)
 - Accès réseau LAN configuré (`ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`)
