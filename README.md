@@ -221,7 +221,7 @@ uv run python manage.py runserver 0.0.0.0:8000
 | `Citoyen` | Profil étendu citoyen (nombre_signalements, nombre_resolus) |
 | `Agent` | Profil étendu agent (matricule, spécialisation, scores de performance) |
 | `Administrateur` | Profil étendu admin (niveau_acces) |
-| `OTP` | Code de vérification temporaire (validité 10 min, cooldown 60 s) |
+| `OTP` | Code de vérification temporaire (validité 1 min, cooldown 60 s) |
 
 ### incidents
 | Modèle | Description |
