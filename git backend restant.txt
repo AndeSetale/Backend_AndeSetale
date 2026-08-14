@@ -1,0 +1,84 @@
+Voici les branches Git Flow pour chaque fonctionnalité, organisées par sprint. Convention : feature/xxx créées depuis develop, fusionnées dans develop via PR, puis develop → release/x.x → main en fin de sprint.
+
+Sprint 1 — Débloque le frontend web + coéquipier IA
+bash
+git checkout develop
+git pull
+
+git checkout -b feature/incident-detail-endpoint
+git checkout -b feature/incident-update-endpoint
+git checkout -b feature/incident-analyse-ia-endpoint
+git checkout -b feature/incident-filters-pagination
+git checkout -b feature/intervention-permissions-role
+Branche	Contenu
+feature/incident-detail-endpoint	GET /api/incidents/<id>/
+feature/incident-update-endpoint	PATCH /api/incidents/<id>/
+feature/incident-analyse-ia-endpoint	POST /api/incidents/<id>/analyse/
+feature/incident-filters-pagination	Migration vers ListCreateAPIView + filterset_fields + SearchFilter
+feature/intervention-permissions-role	Ajout IsAgentOrAdmin sur interventions/views.py
+
+
+Sprint 2 — Débloque l'app mobile agent
+bash
+git checkout develop && git pull
+git checkout -b feature/intervention-rapport-endpoint
+git checkout -b feature/intervention-my-endpoint
+Branche	Contenu
+feature/intervention-rapport-endpoint	POST/PATCH /api/interventions/<id>/rapport/
+feature/intervention-my-endpoint	GET /api/interventions/my/
+Sprint 3 — Pilotage admin
+bash
+git checkout develop && git pull
+git checkout -b feature/agent-crud-endpoints
+git checkout -b feature/incident-journal-activite-endpoint
+git checkout -b feature/dashboard-stats-completes
+Branche	Contenu
+feature/agent-crud-endpoints	Liste/création/détail/modif/suppression agents
+feature/incident-journal-activite-endpoint	GET /api/incidents/<id>/journal/
+feature/dashboard-stats-completes	Répartition par type + évolution 30j + perf agents
+Sprint 4 — Robustesse
+bash
+git checkout develop && git pull
+git checkout -b feature/tests-incidents-interventions
+git checkout -b feature/tests-notifications-dashboard
+git checkout -b chore/jwt-blacklist-refresh
+git checkout -b chore/api-docs-swagger-update
+Branche	Contenu
+feature/tests-incidents-interventions	Suite de tests apps/incidents, apps/interventions
+feature/tests-notifications-dashboard	Suite de tests apps/notifications, apps/dashboard
+chore/jwt-blacklist-refresh	token_blacklist app + migration
+chore/api-docs-swagger-update	Vérif/complétion de la doc drf-spectacular
+Workflow pour chaque branche
+bash
+# 1. Créer la branche depuis develop à jour
+git checkout develop && git pull origin develop
+git checkout -b feature/nom-de-la-fonctionnalite
+
+# 2. Travailler, committer
+git add .
+git commit -m "feat(incidents): ajoute GET /api/incidents/<id>/"
+
+# 3. Pousser et ouvrir une PR vers develop
+git push -u origin feature/nom-de-la-fonctionnalite
+
+# 4. Une fois la PR mergée, nettoyer localement
+git checkout develop && git pull
+git branch -d feature/nom-de-la-fonctionnalite
+
+En fin de sprint, une fois toutes les features du sprint mergées dans develop et testées :
+
+bash
+git checkout develop && git pull
+git checkout -b release/1.1.0
+# tests finaux, corrections mineures éventuelles
+git checkout main && git merge release/1.1.0 --no-ff
+git tag v1.1.0
+git checkout develop && git merge release/1.1.0 --no-ff
+git branch -d release/1.1.0
+
+Veux-tu qu'on commence directement feature/incident-detail-endpoint avec le code testé comme pour le sprint précédent ?
+
+
+
+
+Claude est une IA et peut faire des erreurs. Veuillez vérifier les réponses.
