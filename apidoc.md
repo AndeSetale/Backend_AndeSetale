@@ -765,3 +765,59 @@ Authorization: Bearer <access_token>
   "detail": "Les informations d'authentification n'ont pas été fournies."
 }
 ```
+
+
+# Gestion des agents
+
+## Présentation
+
+Le module `users` permet aux administrateurs de gérer les agents de la plateforme.
+
+Un agent est composé de deux éléments :
+
+- un compte `Utilisateur`
+- un profil `Agent` associé au compte utilisateur par une relation OneToOne.
+
+La création d'un agent crée donc automatiquement :
+
+1. un utilisateur avec le rôle `AGENT`
+2. un profil `Agent` associé
+
+L'accès aux endpoints de gestion des agents est réservé aux utilisateurs authentifiés ayant le rôle `admin`.
+
+---
+
+## Endpoints
+
+### Lister les agents
+
+**GET `/api/agents/`**
+
+Retourne la liste des agents.
+
+Authentification :
+
+- JWT Access Token requis
+- rôle `admin` requis
+
+Exemple de réponse :
+
+```json
+[
+  {
+    "id": 3,
+    "nom_complet": "Agent Test Trois",
+    "email": "agent.test3@andesetal.local",
+    "telephone": "770000099",
+    "quartier": "Plateau",
+    "matricule": "AG-TEST-003",
+    "departement": "Proprete",
+    "specialisation": "DECHETS",
+    "disponible": false,
+    "score_satisfaction": 0,
+    "taux_completion": 0,
+    "ponctualite": 0,
+    "taches_resolues_semaine": 0,
+    "objectif_hebdo": 0
+  }
+]

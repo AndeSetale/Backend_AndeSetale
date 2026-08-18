@@ -1,18 +1,21 @@
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import generics, status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .otp_utils import can_resend_otp, create_and_send_otp
 from .serializers import (
+    AgentCreateSerializer,
+    AgentSerializer,
     CustomTokenObtainPairSerializer,
     RegisterSerializer,
     ResendOtpSerializer,
     UtilisateurSerializer,
     VerifyEmailSerializer,
 )
+from .models import Agent
 
 
 @extend_schema(
@@ -127,3 +130,44 @@ class ResendOtpView(APIView):
             {"detail": "Nouveau code envoyé.", "expires_in": 600},
             status=status.HTTP_200_OK,
         )
+
+
+
+class IsAdmin(BasePermission):
+    """Autorise uniquement les administrateurs."""
+
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and request.user.role == "admin"
+        )
+
+
+
+@extend_schema(
+    responses=AgentSerializer,
+    description="Liste des agents.",
+    tags=["Agents"],
+)
+class AgentListCreateView(generics.ListCreateAPIView):
+    permission_classes = (IsAdmin,)
+
+    def get_queryset(self):
+        return Agent.objects.select_related("utilisateur").all()
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return AgentCreateSerializer
+        return AgentSerializer
+
+
+@extend_schema(
+    responses=AgentSerializer,
+    description="Détail, modification ou suppression d'un agent.",
+    tags=["Agents"],
+)
+class AgentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsAdmin,)
+    queryset = Agent.objects.select_related("utilisateur")
+    serializer_class = AgentSerializer

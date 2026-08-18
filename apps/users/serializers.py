@@ -216,3 +216,120 @@ class ResendOtpSerializer(serializers.Serializer):
                 "Aucun compte associé à cet email."
             )
         return value
+
+
+
+
+class AgentSerializer(serializers.ModelSerializer):
+    """Lecture d'un agent avec les informations de son utilisateur."""
+
+    nom_complet = serializers.SerializerMethodField()
+    email = serializers.EmailField(source="utilisateur.email", read_only=True)
+    telephone = serializers.CharField(
+        source="utilisateur.telephone",
+        read_only=True,
+    )
+    quartier = serializers.CharField(
+        source="utilisateur.quartier",
+        read_only=True,
+    )
+
+    class Meta:
+        model = Agent
+        fields = (
+            "id",
+            "nom_complet",
+            "email",
+            "telephone",
+            "quartier",
+            "matricule",
+            "departement",
+            "specialisation",
+            "disponible",
+            "score_satisfaction",
+            "taux_completion",
+            "ponctualite",
+            "taches_resolues_semaine",
+            "objectif_hebdo",
+        )
+
+    def get_nom_complet(self, obj):
+        return obj.utilisateur.get_full_name()
+
+
+class AgentCreateSerializer(serializers.Serializer):
+    """Création d'un agent et de son utilisateur associé."""
+
+    nom_complet = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    telephone = serializers.CharField(
+        max_length=20,
+        required=False,
+        allow_blank=True,
+    )
+    quartier = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+    )
+    password = serializers.CharField(
+        write_only=True,
+        validators=[validate_password],
+    )
+    matricule = serializers.CharField(max_length=50)
+    departement = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+    )
+    specialisation = serializers.ChoiceField(
+        choices=Agent.TypeIncident.choices,
+        required=False,
+        allow_blank=True,
+    )
+    disponible = serializers.BooleanField(default=True)
+
+    def validate_email(self, value):
+        if Utilisateur.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(
+                "Cette adresse email est déjà utilisée."
+            )
+        return value
+
+    def validate_matricule(self, value):
+        if Agent.objects.filter(matricule=value).exists():
+            raise serializers.ValidationError(
+                "Ce matricule est déjà utilisé."
+            )
+        return value
+
+    def create(self, validated_data):
+        nom_complet = validated_data.pop("nom_complet").strip()
+        password = validated_data.pop("password")
+
+        parts = nom_complet.split(" ", 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+
+        email = validated_data.pop("email")
+        telephone = validated_data.pop("telephone", "")
+        quartier = validated_data.pop("quartier", "")
+
+        username = RegisterSerializer._generer_username(email)
+
+        user = Utilisateur(
+            username=username,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            telephone=telephone,
+            quartier=quartier,
+            role=Utilisateur.Role.AGENT,
+        )
+        user.set_password(password)
+        user.save()
+
+        return Agent.objects.create(
+            utilisateur=user,
+            **validated_data,
+        )
