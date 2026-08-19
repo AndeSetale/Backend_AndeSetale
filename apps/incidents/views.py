@@ -17,6 +17,8 @@ from .serializers import (
     IncidentUpdateSerializer,
     AnalyseIASerializer,
 )
+from drf_spectacular.utils import extend_schema
+
 # Classe pour lister et creer des incidents.
 class IncidentListView(generics.ListCreateAPIView):
     """
@@ -41,6 +43,11 @@ class IncidentListView(generics.ListCreateAPIView):
         signale_par = self.request.user if self.request.user.is_authenticated else None
         serializer.save(signale_par=signale_par)
 
+    @extend_schema(
+        request=IncidentCreateSerializer,
+        responses={201: IncidentSerializer},
+        description="Crée un incident avec photo initiale optionnelle et géolocalisation. Déclenche l'analyse IA."
+    )
     def create(self, request, *args, **kwargs):
         # On garde le comportement standard de CreateModelMixin, mais on
         # sérialise la RÉPONSE avec IncidentSerializer (lecture complète :
@@ -81,6 +88,11 @@ class PreuveUploadView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
+    @extend_schema(
+        request=PreuveUploadSerializer,
+        responses={201: PreuveSerializer},
+        description="Téléverse une preuve photo pour un incident existant."
+    )
     def post(self, request):
         serializer = PreuveUploadSerializer(
             data=request.data, context={"request": request}
