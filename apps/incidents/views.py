@@ -1,17 +1,14 @@
-from drf_spectacular.utils import extend_schema, OpenApiResponse
-from rest_framework import status
+from rest_framework import status, generics
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.generics import get_object_or_404
-from apps.users.permissions import IsAgentOrAdmin
-from .models import AnalyseIA
-
-from rest_framework import generics
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from .models import Incident, Preuve
+from apps.users.permissions import IsAgentOrAdmin
+from .models import Incident, Preuve, AnalyseIA
+from .ai_service import déclencher_analyse_ia
 from .serializers import (
     IncidentSerializer,
     IncidentCreateSerializer,
@@ -52,7 +49,15 @@ class IncidentListView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-        output = IncidentSerializer(serializer.instance, context={"request": request})
+        
+        # Déclenchement automatique de l'analyse IA si une photo initiale est jointe
+        incident = serializer.instance
+        preuve_initiale = incident.preuves.filter(type=Preuve.TypePreuve.PHOTO_INITIALE).first()
+        if preuve_initiale and preuve_initiale.image:
+            déclencher_analyse_ia(incident, preuve_initiale.image)
+            incident.refresh_from_db()
+
+        output = IncidentSerializer(incident, context={"request": request})
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -88,6 +93,10 @@ class PreuveUploadView(APIView):
             type=serializer.validated_data["type"],
             image=serializer.validated_data["image"],
         )
+
+        # Déclenchement automatique de l'analyse IA si l'incident n'en a pas encore
+        if not hasattr(incident, "analyse_ia"):
+            déclencher_analyse_ia(incident, preuve.image)
 
         output = PreuveSerializer(preuve, context={"request": request})
         return Response(output.data, status=status.HTTP_201_CREATED)
