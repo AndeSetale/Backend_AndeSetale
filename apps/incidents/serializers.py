@@ -49,14 +49,16 @@ class PreuveSerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
-# Preuve — upload multipart
+# Preuve — upload standalone (ex: photo avant / après par un agent)
 # ---------------------------------------------------------------------------
 
 class PreuveUploadSerializer(serializers.Serializer):
     """
-    Upload multipart d'une photo de preuve pour un incident existant.
+    Validation du téléversement d'une preuve photo.
 
-    Règle image :
+    Usage : POST /api/incidents/preuves/upload/
+    Content-Type : multipart/form-data
+
     - Requis à l'upload (required=True par défaut sur ImageField)
     - Non stocké en base si non fourni (blank=True, null=True sur le modèle)
     """
@@ -64,10 +66,12 @@ class PreuveUploadSerializer(serializers.Serializer):
     incident_id = serializers.IntegerField()
     type = serializers.ChoiceField(choices=Preuve.TypePreuve.choices)
     # L'image est OBLIGATOIRE lors d'un upload — c'est l'objet même de cet endpoint.
-    image = serializers.ImageField(
-        required=True,
-        allow_empty_file=False,
-        use_url=False,  # on construit l'URL manuellement dans PreuveSerializer
+    image = extend_schema_field(OpenApiTypes.BINARY)(
+        serializers.ImageField(
+            required=True,
+            allow_empty_file=False,
+            use_url=False,  # on construit l meURL manuellement dans PreuveSerializer
+        )
     )
 
     def validate_image(self, value):
@@ -141,12 +145,14 @@ class IncidentCreateSerializer(serializers.ModelSerializer):
     )
     # Champ transient : présent à l'écriture, absent de la réponse.
     # required=False → l'image est optionnelle à la création.
-    image = serializers.ImageField(
-        required=False,
-        allow_empty_file=False,
-        write_only=True,
-        use_url=False,
-        help_text="Photo initiale (optionnelle). Max 5 MB. Formats : JPEG, PNG, WebP.",
+    image = extend_schema_field(OpenApiTypes.BINARY)(
+        serializers.ImageField(
+            required=False,
+            allow_empty_file=False,
+            write_only=True,
+            use_url=False,
+            help_text="Photo initiale (optionnelle). Max 5 MB. Formats : JPEG, PNG, WebP.",
+        )
     )
 
     class Meta:
