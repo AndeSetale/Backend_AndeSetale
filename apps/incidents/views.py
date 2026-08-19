@@ -44,7 +44,9 @@ class IncidentListView(generics.ListCreateAPIView):
         serializer.save(signale_par=signale_par)
 
     @extend_schema(
-        request=IncidentCreateSerializer,
+        request={
+            "multipart/form-data": IncidentCreateSerializer,
+        },
         responses={201: IncidentSerializer},
         description="Crée un incident avec photo initiale optionnelle et géolocalisation. Déclenche l'analyse IA."
     )
