@@ -6,9 +6,15 @@ from .models import Intervention, Rapport
 class RapportSerializer(serializers.ModelSerializer):
     class Meta:
         model = Rapport
-        fields = ["id", "contenu_pdf", "taille_fichier_mo", "statut", "date_envoi"]
+        fields = [
+            "id",
+            "intervention",
+            "photo_avant",
+            "photo_apres",
+            "date_envoi",
+            "statut",
+        ]
         read_only_fields = ["id", "date_envoi"]
-
 
 class InterventionSerializer(serializers.ModelSerializer):
     """Lecture complète d'une intervention avec son rapport s'il existe."""

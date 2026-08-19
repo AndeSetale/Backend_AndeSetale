@@ -52,17 +52,34 @@ class Intervention(models.Model):
 
 
 class Rapport(models.Model):
-    """Rapport de clôture d'une intervention."""
+    """Rapport photo de clôture d'une intervention."""
 
     intervention = models.OneToOneField(
         Intervention,
         on_delete=models.CASCADE,
         related_name="rapport",
     )
-    contenu_pdf = models.CharField(max_length=500, blank=True, null=True)
-    taille_fichier_mo = models.FloatField(blank=True, null=True)
-    date_envoi = models.DateTimeField(auto_now_add=True)
-    statut = models.CharField(max_length=50, blank=True, null=True)
+
+    photo_avant = models.ImageField(
+        upload_to="rapports/avant/",
+        null=True,
+        blank=True
+    )
+
+    photo_apres = models.ImageField(
+        upload_to="rapports/apres/",
+        null=True,
+        blank=True
+    )
+
+    date_envoi = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    statut = models.CharField(
+        max_length=50,
+        default="ENVOYE"
+    )
 
     class Meta:
         verbose_name = "Rapport"

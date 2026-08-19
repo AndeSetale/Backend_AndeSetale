@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from apps.incidents.geo import point_dans_plateau
+
 from .models import Incident, Preuve, AnalyseIA
 
 
@@ -156,9 +158,20 @@ class IncidentCreateSerializer(serializers.ModelSerializer):
             # champ transient — write only
             "image",
         ]
-
+    def validate(self, attrs):
+        lat = attrs.get("latitude")
+        lng = attrs.get("longitude")
+        if lat is not None and lng is not None:
+            if not point_dans_plateau(lat, lng):
+                raise serializers.ValidationError(
+                    "Ce signalement est en dehors du périmètre couvert (Dakar-Plateau)."
+                )
+        return attrs
+    
     def validate_image(self, value):
         return _validate_image(value)
+
+    
 
     def create(self, validated_data):
         image = validated_data.pop("image", None)
@@ -225,3 +238,5 @@ class IncidentUpdateSerializer(serializers.ModelSerializer):
             "commentaire",
             "date_estimation_heures",
         ]
+
+    

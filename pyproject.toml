@@ -12,6 +12,8 @@ dependencies = [
     "drf-spectacular>=0.30.0",
     "mysqlclient>=2.2.8",
     "pillow>=12.3.0",
+    "requests>=2.34.2",
+    "shapely>=2.1.2",
 ]
 
 [dependency-groups]

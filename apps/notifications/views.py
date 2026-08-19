@@ -49,6 +49,7 @@ class NotificationMarkReadView(APIView):
         },
         tags=["Notifications"],
     )
+    
     def post(self, request):
         serializer = NotificationMarkReadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
