@@ -133,6 +133,12 @@ class IncidentCreateSerializer(serializers.ModelSerializer):
     automatiquement après la sauvegarde de l'incident.
     """
 
+    type = serializers.ChoiceField(
+        choices=Incident.TypeIncident.choices,
+        required=False,
+        default=Incident.TypeIncident.DECHETS,
+        help_text="Type d'incident (qualifié automatiquement par l'IA si non renseigné).",
+    )
     # Champ transient : présent à l'écriture, absent de la réponse.
     # required=False → l'image est optionnelle à la création.
     image = serializers.ImageField(
