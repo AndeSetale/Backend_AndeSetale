@@ -16,4 +16,5 @@ urlpatterns = [
     path("me/", MeView.as_view(), name="auth-me"),
     path("verify-email/", VerifyEmailView.as_view(), name="auth-verify-email"),
     path("resend-otp/", ResendOtpView.as_view(), name="auth-resend-otp"),
+
 ]
