@@ -520,34 +520,3 @@ class RapportView(APIView):
 
         return Response(serializer.data)
 
-
-
-
-class MesInterventionsView(APIView):
-    """
-    GET /api/interventions/my/
-    Retourne les interventions assignées à l'agent connecté.
-    """
-
-    permission_classes = [IsAgentOrAdmin]
-
-    @extend_schema(
-        summary="Mes interventions",
-        description="Retourne les interventions assignées à l'agent connecté.",
-        responses={200: InterventionSerializer(many=True)},
-        tags=["Interventions"],
-    )
-    def get(self, request):
-        interventions = (
-            Intervention.objects
-            .filter(agent=request.user)
-            .select_related("incident", "agent", "rapport")
-            .order_by("-date_debut")
-        )
-
-        serializer = InterventionSerializer(
-            interventions,
-            many=True
-        )
-
-        return Response(serializer.data)
