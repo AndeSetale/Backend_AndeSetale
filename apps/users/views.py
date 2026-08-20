@@ -16,6 +16,7 @@ from .serializers import (
     VerifyEmailSerializer,
 )
 from .models import Agent
+from .permissions import IsAdmin
 
 
 @extend_schema(
@@ -131,17 +132,6 @@ class ResendOtpView(APIView):
             status=status.HTTP_200_OK,
         )
 
-
-
-class IsAdmin(BasePermission):
-    """Autorise uniquement les administrateurs."""
-
-    def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and request.user.role == "admin"
-        )
 
 
 

@@ -120,24 +120,63 @@ class RegisterSerializer(serializers.Serializer):
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """
-    JWT — connexion via un champ unique `identifiant` (email ou téléphone),
-    au lieu de `username`. Réponse enrichie avec les infos utilisateur.
+    JWT — connexion avec un identifiant unique.
+
+    L'utilisateur peut se connecter avec :
+    - son email ;
+    - son numéro de téléphone ;
+    - son username.
+
+    Le champ envoyé par le frontend reste toujours :
+        {
+            "identifiant": "...",
+            "password": "..."
+        }
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Remplace le champ "username" hérité par notre champ "identifiant".
-        # NB : on NE touche PAS à self.username_field (reste "username"),
-        # c'est la clé que simplejwt utilise en interne pour authenticate() —
-        # la changer casserait l'authentification.
+
+        # SimpleJWT attend normalement "username".
+        # On le remplace uniquement dans le formulaire exposé
+        # au frontend par notre champ "identifiant".
+        #
+        # IMPORTANT :
+        # self.username_field reste "username" pour que
+        # SimpleJWT puisse ensuite appeler authenticate().
         self.fields.pop(self.username_field, None)
         self.fields["identifiant"] = serializers.CharField()
 
     def validate(self, attrs):
-        identifiant = attrs.pop("identifiant", None)
+        # ------------------------------------------------------
+        # 1. RÉCUPÉRATION DE L'IDENTIFIANT
+        # ------------------------------------------------------
 
-        is_email = bool(EMAIL_REGEX.match(identifiant or ""))
-        lookup = {"email__iexact": identifiant} if is_email else {"telephone": identifiant}
+        identifiant = attrs.pop("identifiant", "").strip()
+
+        if not identifiant:
+            raise serializers.ValidationError(
+                {"detail": "L'identifiant est obligatoire."}
+            )
+
+        # ------------------------------------------------------
+        # 2. RECHERCHE DE L'UTILISATEUR
+        # ------------------------------------------------------
+
+        # Si l'identifiant ressemble à un email,
+        # on recherche par email.
+        if EMAIL_REGEX.match(identifiant):
+            lookup = {"email__iexact": identifiant}
+
+        # Si c'est un numéro de téléphone,
+        # on recherche par téléphone.
+        elif identifiant.startswith("+") or identifiant.isdigit():
+            lookup = {"telephone": identifiant}
+
+        # Sinon, on considère que c'est le username.
+        # Exemple : "agent001"
+        else:
+            lookup = {"username": identifiant}
 
         try:
             user = Utilisateur.objects.get(**lookup)
@@ -146,11 +185,34 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 {"detail": "Identifiants invalides."}
             )
 
-        # Réinjecte le vrai username sous la clé attendue par simplejwt
-        # (self.username_field, toujours "username" ici) avant de déléguer
-        # à la validation standard, qui appelle authenticate() en interne.
+        # ------------------------------------------------------
+        # 3. VÉRIFICATION DU MOT DE PASSE
+        # ------------------------------------------------------
+
+        password = attrs.get("password")
+
+        if not user.check_password(password):
+            raise serializers.ValidationError(
+                {"detail": "Identifiants invalides."}
+            )
+
+        # ------------------------------------------------------
+        # 4. PRÉPARATION POUR SIMPLEJWT
+        # ------------------------------------------------------
+
+        # SimpleJWT utilise toujours la clé "username"
+        # pour appeler authenticate().
+        #
+        # On lui transmet donc le vrai username du compte.
         attrs[self.username_field] = user.get_username()
+
+        # La validation standard de SimpleJWT génère
+        # les tokens access + refresh.
         data = super().validate(attrs)
+
+        # ------------------------------------------------------
+        # 5. INFORMATIONS UTILISATEUR DANS LA RÉPONSE
+        # ------------------------------------------------------
 
         data["user"] = {
             "id": self.user.id,
@@ -160,6 +222,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "first_name": self.user.first_name,
             "last_name": self.user.last_name,
         }
+
         return data
 
 

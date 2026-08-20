@@ -1,9 +1,18 @@
 from rest_framework import serializers
 
 from .models import Intervention, Rapport
-# serializers sert à générer les APIs REST
+from apps.users.models import Agent
 
 class RapportSerializer(serializers.ModelSerializer):
+    """
+    Sérialiseur des rapports de clôture.
+
+    L'intervention est déterminée par l'URL :
+    /api/interventions/<id>/rapport/
+
+    Le frontend n'a donc pas besoin de l'envoyer dans le POST.
+    """
+
     class Meta:
         model = Rapport
         fields = [
@@ -14,7 +23,13 @@ class RapportSerializer(serializers.ModelSerializer):
             "date_envoi",
             "statut",
         ]
-        read_only_fields = ["id", "date_envoi"]
+
+        read_only_fields = [
+            "id",
+            "intervention",
+            "date_envoi",
+        ]
+
 
 class InterventionSerializer(serializers.ModelSerializer):
     """Lecture complète d'une intervention avec son rapport s'il existe."""
@@ -36,30 +51,70 @@ class InterventionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "numero_suivi"]
 
 
+
+
 class InterventionCreateSerializer(serializers.ModelSerializer):
     """
-    Création d'une intervention (assignation d'un agent à un incident).
-    Le numéro de suivi est généré automatiquement si non fourni.
+    Création d'une intervention.
+
+    Une intervention peut être créée par un administrateur.
+    L'agent fourni doit obligatoirement correspondre à un profil Agent.
     """
 
     class Meta:
         model = Intervention
-        fields = ["incident", "agent", "statut", "date_debut", "date_fin", "numero_suivi"]
+        fields = [
+            "incident",
+            "agent",
+            "statut",
+            "date_debut",
+            "date_fin",
+            "numero_suivi",
+        ]
         extra_kwargs = {
             "numero_suivi": {"required": False},
         }
 
+    def validate_agent(self, value):
+        """
+        Vérifie que le compte utilisateur sélectionné possède
+        bien un profil Agent.
+        """
+
+        if not hasattr(value, "profil_agent"):
+            raise serializers.ValidationError(
+                "L'utilisateur sélectionné n'est pas un agent."
+            )
+
+        return value
+
     def validate_numero_suivi(self, value):
-        if value and Intervention.objects.filter(numero_suivi=value).exists():
+        if value and Intervention.objects.filter(
+            numero_suivi=value
+        ).exists():
             raise serializers.ValidationError(
                 f"Le numéro de suivi '{value}' est déjà utilisé."
             )
+
         return value
 
 
 class InterventionUpdateSerializer(serializers.ModelSerializer):
-    """Mise à jour partielle d'une intervention (statut, dates)."""
+    """
+    Mise à jour d'une intervention.
+
+    Le champ `agent` n'est volontairement pas modifiable ici.
+
+    L'assignation d'un agent relève du superviseur/admin.
+    Un agent peut uniquement modifier les informations
+    opérationnelles de son intervention.
+    """
 
     class Meta:
         model = Intervention
-        fields = ["agent", "statut", "date_debut", "date_fin"]
+        fields = [
+            "statut",
+            "date_debut",
+            "date_fin",
+        ]
+

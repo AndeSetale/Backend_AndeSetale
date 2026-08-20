@@ -1,23 +1,40 @@
+from datetime import timedelta
+
 from django.db.models import Count
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, OpenApiResponse
+
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.incidents.models import Incident
-from apps.users.models import Agent
-from .serializers import DashboardStatsSerializer
+from apps.interventions.models import Intervention
 
+from apps.users.models import Agent
+from apps.users.permissions import IsAgent
+
+from .serializers import (
+    DashboardStatsSerializer,
+    AgentDashboardSerializer,
+    AgentDashboardInterventionSerializer
+)
+
+
+# ==============================================================
+# DASHBOARD ADMIN / SUPERVISEUR
+# ==============================================================
 
 class DashboardStatsView(APIView):
     """
     GET /api/dashboard/stats/
 
-    Retourne les statistiques globales pour le dashboard superviseur :
-    - Compteurs totaux (signalements total, en cours, résolus, urgents)
-    - Répartition des incidents par statut
-    - Nombre d'agents disponibles
+    Retourne les statistiques globales du système.
+
+    Cet endpoint est actuellement accessible à tout utilisateur
+    authentifié. Il pourra être restreint à IsAdmin si nécessaire
+    pour le dashboard administrateur.
     """
 
     permission_classes = [IsAuthenticated]
@@ -25,9 +42,8 @@ class DashboardStatsView(APIView):
     @extend_schema(
         summary="Statistiques du dashboard superviseur",
         description=(
-            "Retourne les compteurs clés et la répartition des incidents par statut. "
-            "Accessible uniquement aux utilisateurs authentifiés. "
-            "Temps de réponse cible < 500 ms."
+            "Retourne les compteurs clés et la répartition "
+            "des incidents par statut."
         ),
         responses={
             200: OpenApiResponse(
@@ -38,14 +54,21 @@ class DashboardStatsView(APIView):
         tags=["Dashboard"],
     )
     def get(self, request):
-        # --- Compteurs signalements (3 requêtes agrégées) ---
+
+        # ------------------------------------------------------
+        # COMPTEURS DES INCIDENTS
+        # ------------------------------------------------------
+
         total = Incident.objects.count()
+
         en_cours = Incident.objects.filter(
             statut=Incident.StatutIncident.EN_COURS
         ).count()
+
         resolus = Incident.objects.filter(
             statut=Incident.StatutIncident.RESOLU
         ).count()
+
         urgents = Incident.objects.filter(
             niveau_urgence__in=[
                 Incident.NiveauUrgence.CRITIQUE,
@@ -53,19 +76,36 @@ class DashboardStatsView(APIView):
             ]
         ).count()
 
-        # --- Incidents par statut (1 requête groupée) ---
+        # ------------------------------------------------------
+        # RÉPARTITION DES INCIDENTS PAR STATUT
+        # ------------------------------------------------------
+
         par_statut = (
-            Incident.objects.values("statut")
+            Incident.objects
+            .values("statut")
             .annotate(count=Count("id"))
             .order_by("statut")
         )
+
         incidents_par_statut = [
-            {"statut": row["statut"], "count": row["count"]}
+            {
+                "statut": row["statut"],
+                "count": row["count"],
+            }
             for row in par_statut
         ]
 
-        # --- Agents disponibles ---
-        agents_disponibles = Agent.objects.filter(disponible=True).count()
+        # ------------------------------------------------------
+        # AGENTS DISPONIBLES
+        # ------------------------------------------------------
+
+        agents_disponibles = Agent.objects.filter(
+            disponible=True
+        ).count()
+
+        # ------------------------------------------------------
+        # RÉPONSE
+        # ------------------------------------------------------
 
         data = {
             "signalements": {
@@ -79,3 +119,240 @@ class DashboardStatsView(APIView):
         }
 
         return Response(data)
+
+
+# ==============================================================
+# DASHBOARD AGENT
+# ==============================================================
+
+class AgentDashboardView(APIView):
+    """
+    GET /api/dashboard/agent/
+
+    Retourne les informations nécessaires au dashboard
+    de l'agent connecté :
+
+    - informations personnelles de l'agent ;
+    - statistiques personnelles ;
+    - interventions prioritaires ;
+    - interventions récentes.
+
+    Un agent ne peut voir que ses propres interventions.
+    """
+
+    permission_classes = [IsAgent]
+
+    @extend_schema(
+        summary="Dashboard de l'agent",
+        description=(
+            "Retourne les informations et statistiques de l'agent "
+            "connecté ainsi que ses interventions prioritaires "
+            "et récentes."
+        ),
+        responses={
+            200: AgentDashboardSerializer,
+        },
+        tags=["Dashboard"],
+    )
+    def get(self, request):
+
+        # ======================================================
+        # PROFIL AGENT
+        # ======================================================
+
+        # request.user est le compte Utilisateur.
+        # On récupère le profil Agent correspondant.
+        agent = (
+            Agent.objects
+            .select_related("utilisateur")
+            .get(utilisateur=request.user)
+        )
+
+        # ======================================================
+        # INTERVENTIONS DE L'AGENT CONNECTÉ
+        # ======================================================
+
+        # IMPORTANT :
+        # On filtre directement avec request.user.
+        # L'agent ne peut donc jamais récupérer les interventions
+        # d'un autre agent via cet endpoint.
+        interventions = (
+            Intervention.objects
+            .filter(agent=request.user)
+            .select_related(
+                "incident",
+                "agent",
+                "rapport",
+            )
+        )
+
+        # ======================================================
+        # STATISTIQUES DE LA SEMAINE
+        # ======================================================
+
+        # Date du jour dans le fuseau horaire Django.
+        today = timezone.localdate()
+
+        # Lundi de la semaine actuelle.
+        debut_semaine = today - timedelta(
+            days=today.weekday()
+        )
+
+        # ------------------------------------------------------
+        # TÂCHES TERMINÉES CETTE SEMAINE
+        # ------------------------------------------------------
+
+        taches_resolues_semaine = interventions.filter(
+            statut=Intervention.Statut.TERMINEE,
+            date_fin__date__gte=debut_semaine,
+        ).count()
+
+        # ------------------------------------------------------
+        # INTERVENTIONS ACTUELLEMENT EN COURS
+        # ------------------------------------------------------
+
+        interventions_en_cours = interventions.filter(
+            statut=Intervention.Statut.EN_COURS,
+        ).count()
+
+        # ------------------------------------------------------
+        # INDICATEURS DE PERFORMANCE
+        # ------------------------------------------------------
+
+        # Ces deux valeurs existent déjà dans le modèle Agent.
+        taux_completion = agent.taux_completion
+        ponctualite = agent.ponctualite
+
+        # ======================================================
+        # INTERVENTIONS PRIORITAIRES
+        # ======================================================
+
+        # Une intervention prioritaire doit :
+        # - appartenir à l'agent connecté ;
+        # - concerner un incident critique ou élevé ;
+        # - ne pas être déjà terminée.
+        interventions_prioritaires = (
+            interventions
+            .filter(
+                statut__in=[
+                    Intervention.Statut.EN_ATTENTE,
+                    Intervention.Statut.EN_COURS,
+                ],
+                incident__niveau_urgence__in=[
+                    Incident.NiveauUrgence.CRITIQUE,
+                    Incident.NiveauUrgence.ELEVE,
+                ],
+            )
+            .select_related("incident")
+            .order_by(
+                "-incident__niveau_urgence",
+                "-incident__date_creation",
+            )[:5]
+        )
+
+        # ======================================================
+        # INTERVENTIONS RÉCENTES
+        # ======================================================
+
+        # Les 5 dernières interventions de l'agent.
+        interventions_recentes = (
+            interventions
+            .select_related("incident")
+            .order_by(
+                "-date_debut",
+                "-id",
+            )[:5]
+        )
+
+        # ======================================================
+        # SÉRIALISATION DASHBOARD
+        # ======================================================
+
+        prioritaires_data = [
+        {
+            "id": intervention.id,
+            "numero_suivi": intervention.numero_suivi,
+            "statut": intervention.statut,
+            "date_debut": intervention.date_debut,
+            "date_fin": intervention.date_fin,
+
+            # Informations de l'incident
+            "incident_id": intervention.incident.id,
+            "reference": intervention.incident.reference,
+            "type": intervention.incident.type,
+            "description": intervention.incident.description,
+            "niveau_urgence": intervention.incident.niveau_urgence,
+            "quartier": intervention.incident.quartier,
+            "adresse": intervention.incident.adresse,
+        }
+        for intervention in interventions_prioritaires
+    ]
+
+
+        recentes_data = [
+        {
+            "id": intervention.id,
+            "numero_suivi": intervention.numero_suivi,
+            "statut": intervention.statut,
+            "date_debut": intervention.date_debut,
+            "date_fin": intervention.date_fin,
+
+            # Informations de l'incident
+            "incident_id": intervention.incident.id,
+            "reference": intervention.incident.reference,
+            "type": intervention.incident.type,
+            "description": intervention.incident.description,
+            "niveau_urgence": intervention.incident.niveau_urgence,
+            "quartier": intervention.incident.quartier,
+            "adresse": intervention.incident.adresse,
+        }
+        for intervention in interventions_recentes
+    ]
+
+
+
+        # ======================================================
+        # CONSTRUCTION DU DASHBOARD
+        # ======================================================
+
+        data = {
+            "agent": {
+                "id": agent.id,
+                "nom_complet": (
+                    agent.utilisateur
+                    .get_full_name()
+                    .strip()
+                ),
+                "matricule": agent.matricule,
+                "specialisation": (
+                    agent.get_specialisation_display()
+                    if agent.specialisation
+                    else None
+                ),
+            },
+
+            "statistiques": {
+                "taches_resolues_semaine": (
+                    taches_resolues_semaine
+                ),
+                "interventions_en_cours": (
+                    interventions_en_cours
+                ),
+                "taux_completion": taux_completion,
+                "ponctualite": ponctualite,
+            },
+
+            "interventions_prioritaires": (
+                prioritaires_data
+            ),
+
+            "interventions_recentes": (
+                recentes_data
+            ),
+        }
+
+        # Le serializer vérifie que la structure finale
+        # correspond bien au contrat prévu pour le frontend.
+        serializer = AgentDashboardSerializer(data)
+
+        return Response(serializer.data)
