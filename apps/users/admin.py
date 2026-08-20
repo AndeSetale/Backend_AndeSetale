@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import Administrateur, Agent, Citoyen, OTP, Utilisateur
+from .models import OTP, Administrateur, Agent, Citoyen, Utilisateur
 
 
 @admin.register(Utilisateur)

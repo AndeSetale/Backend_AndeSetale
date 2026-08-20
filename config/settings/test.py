@@ -2,7 +2,7 @@
 Settings pour les tests — SQLite en mémoire, pas de dépendance MySQL.
 """
 
-from .base import *  # noqa
+from .base import *
 
 # SQLite en mémoire : rapide, aucun droit DB requis
 DATABASES = {
