@@ -3,6 +3,12 @@ from rest_framework import serializers
 from .models import Intervention, Rapport
 from apps.users.models import Agent
 
+# On réutilise le serializer Incident déjà existant.
+# Cela permet de récupérer les informations complètes de l'incident
+# dans la réponse d'une intervention.
+from apps.incidents.serializers import IncidentSerializer
+
+
 class RapportSerializer(serializers.ModelSerializer):
     """
     Sérialiseur des rapports de clôture.
@@ -32,8 +38,50 @@ class RapportSerializer(serializers.ModelSerializer):
 
 
 class InterventionSerializer(serializers.ModelSerializer):
-    """Lecture complète d'une intervention avec son rapport s'il existe."""
+    """
+    Lecture complète d'une intervention.
 
+    L'incident est volontairement imbriqué dans la réponse
+    afin que le frontend de l'agent puisse afficher directement :
+
+    - la référence de l'incident
+    - le type
+    - la description
+    - le niveau d'urgence
+    - l'adresse
+    - les preuves/photos
+    - les autres informations de l'incident
+
+    Le frontend n'a donc pas besoin de faire une deuxième
+    requête vers /api/incidents/<id>/.
+    """
+
+    # ----------------------------------------------------------
+    # INCIDENT IMBRIQUÉ
+    # ----------------------------------------------------------
+    #
+    # Avant :
+    #
+    # "incident": 1
+    #
+    # Maintenant :
+    #
+    # "incident": {
+    #     "id": 1,
+    #     "reference": "...",
+    #     ...
+    # }
+    #
+    # On réutilise directement IncidentSerializer afin de garder
+    # exactement le même format que l'API des incidents.
+    incident = IncidentSerializer(read_only=True)
+
+    # ----------------------------------------------------------
+    # RAPPORT
+    # ----------------------------------------------------------
+    #
+    # Le rapport est également imbriqué lorsqu'il existe.
+    # Si aucun rapport n'existe encore, la valeur sera null.
     rapport = RapportSerializer(read_only=True)
 
     class Meta:
@@ -49,8 +97,6 @@ class InterventionSerializer(serializers.ModelSerializer):
             "rapport",
         ]
         read_only_fields = ["id", "numero_suivi"]
-
-
 
 
 class InterventionCreateSerializer(serializers.ModelSerializer):
@@ -117,4 +163,3 @@ class InterventionUpdateSerializer(serializers.ModelSerializer):
             "date_debut",
             "date_fin",
         ]
-
