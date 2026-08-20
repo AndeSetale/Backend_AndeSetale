@@ -15,7 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, ['192.168.1.111', 'localhost', '127.0.0.1']),
-    CORS_ALLOWED_ORIGINS=(list, ["http://localhost:4200"]),
+    CORS_ALLOWED_ORIGINS=(list, ["http://localhost:4200","http://localhost:54086"]),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
