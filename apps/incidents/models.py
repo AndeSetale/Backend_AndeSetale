@@ -156,7 +156,7 @@ class AnalyseIA(models.Model):
         verbose_name_plural = "Analyses IA"
 
     def __str__(self):
-        return f"AnalyseIA — Incident #{self.incident_id} (confiance: {self.score_confiance:.0%})"
+        return f"AnalyseIA — Incident #{self.incident.id} (confiance: {self.score_confiance:.0%})" 
 
 
 class JournalActivite(models.Model):
