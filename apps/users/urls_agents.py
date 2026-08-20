@@ -1,7 +1,6 @@
 from django.urls import path
 
-from .agent_views import AgentDetailView, AgentListCreateView
-
+from .views import AgentDetailView, AgentListCreateView
 
 urlpatterns = [
     path("", AgentListCreateView.as_view(), name="agents-list-create"),

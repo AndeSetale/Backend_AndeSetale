@@ -9,5 +9,5 @@ urlpatterns = [
     path("incidents/", include("apps.incidents.urls")),
     path("interventions/", include("apps.interventions.urls")),
     path("notifications/", include("apps.notifications.urls")),
-    path("agents/", include("apps.users.agent_urls")),
+    path("agents/", include("apps.users.urls_agents")),
 ] + router.urls
