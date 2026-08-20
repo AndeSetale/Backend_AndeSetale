@@ -26,7 +26,7 @@ class Incident(models.Model):
         MODERE = "MODERE", "Modéré"
         ROUTINE = "ROUTINE", "Routine"
 
-    reference = models.CharField(max_length=50, unique=True)
+    reference = models.CharField(max_length=50, unique=True) # exemple: INC-2121
     type = models.CharField(max_length=30, choices=TypeIncident.choices)
     description = models.TextField()
     statut = models.CharField(
