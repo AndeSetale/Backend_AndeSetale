@@ -65,14 +65,18 @@ class LoginView(TokenObtainPairView):
 
 @extend_schema(
     responses={200: UtilisateurSerializer},
-    description="Retourne le profil complet de l'utilisateur authentifié.",
+    description="Retourne ou met à jour le profil de l'utilisateur authentifié.",
     tags=["Auth"],
 )
-class MeView(generics.RetrieveAPIView):
-    """GET /api/auth/me/ — Profil de l'utilisateur connecté."""
+class MeView(generics.RetrieveUpdateAPIView):
+    """
+    GET   /api/auth/me/ — Profil de l'utilisateur connecté.
+    PATCH /api/auth/me/ — Mise à jour partielle (first_name, last_name, telephone, quartier).
+    """
 
     permission_classes = (IsAuthenticated,)
     serializer_class = UtilisateurSerializer
+    http_method_names = ["get", "patch", "head", "options"]
 
     def get_object(self):
         return self.request.user

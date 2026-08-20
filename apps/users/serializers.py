@@ -11,7 +11,7 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class UtilisateurSerializer(serializers.ModelSerializer):
-    """Sérialisation publique d'un utilisateur (lecture)."""
+    """Sérialisation publique d'un utilisateur (lecture + mise à jour partielle)."""
 
     class Meta:
         model = Utilisateur
@@ -28,7 +28,7 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             "email_verifie",
             "date_joined",
         )
-        read_only_fields = ("id", "email_verifie", "date_joined")
+        read_only_fields = ("id", "username", "role", "email_verifie", "date_joined")
 
 
 # ---------------------------------------------------------------------------
