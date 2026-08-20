@@ -14,6 +14,7 @@ from .serializers import (
     RapportSerializer,
 )
 from apps.users.permissions import IsAgent, IsAgentOrAdmin
+from django.utils import timezone
 
 class InterventionListView(APIView):
     """
