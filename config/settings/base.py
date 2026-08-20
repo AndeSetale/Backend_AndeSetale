@@ -15,7 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, ['192.168.1.111', 'localhost', '127.0.0.1']),
-    CORS_ALLOWED_ORIGINS=(list, ["http://localhost:4200"]),
+    CORS_ALLOWED_ORIGINS=(list, ["http://localhost:4200","http://localhost:54086"]),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -81,22 +81,33 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 # ---------------------------------------------------------------------------
-# Base de données — MySQL
+# Base de données — MySQL (avec fallback SQLite si configuré)
 # ---------------------------------------------------------------------------
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.mysql",
-        "NAME": env("DB_NAME"),
-        "USER": env("DB_USER"),
-        "PASSWORD": env("DB_PASSWORD"),
-        "HOST": env("DB_HOST", default="127.0.0.1"),
-        "PORT": env("DB_PORT", default="3306"),
-        "OPTIONS": {
-            "charset": "utf8mb4",
-            "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
+DB_ENGINE = env("DB_ENGINE", default="mysql")
+USE_SQLITE = env.bool("USE_SQLITE", default=False)
+
+if DB_ENGINE == "sqlite3" or USE_SQLITE:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": env("DB_NAME", default="and_setal"),
+            "USER": env("DB_USER", default="root"),
+            "PASSWORD": env("DB_PASSWORD", default=""),
+            "HOST": env("DB_HOST", default="127.0.0.1"),
+            "PORT": env("DB_PORT", default="3306"),
+            "OPTIONS": {
+                "charset": "utf8mb4",
+                "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
+        }
+    }
 
 # ---------------------------------------------------------------------------
 # Authentification
