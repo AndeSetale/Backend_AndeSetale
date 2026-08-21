@@ -221,6 +221,13 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "role": self.user.role,
             "first_name": self.user.first_name,
             "last_name": self.user.last_name,
+            "telephone": self.user.telephone,
+            "quartier": self.user.quartier,
+            "photo_profil": (
+                self.user.photo_profil.url
+                if self.user.photo_profil
+                else None
+            ),
         }
 
         return data

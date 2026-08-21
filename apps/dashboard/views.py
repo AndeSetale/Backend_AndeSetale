@@ -13,7 +13,7 @@ from apps.incidents.models import Incident
 from apps.interventions.models import Intervention
 
 from apps.users.models import Agent
-from apps.users.permissions import IsAgent
+from apps.users.permissions import IsAdmin, IsAgent, IsAgentOrAdmin
 
 from .serializers import (
     DashboardStatsSerializer,
@@ -37,7 +37,7 @@ class DashboardStatsView(APIView):
     pour le dashboard administrateur.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
     @extend_schema(
         summary="Statistiques du dashboard superviseur",
@@ -356,3 +356,67 @@ class AgentDashboardView(APIView):
         serializer = AgentDashboardSerializer(data)
 
         return Response(serializer.data)
+
+
+# ==============================================================
+# CARTE INCIDENTS — ADMIN / AGENT
+# ==============================================================
+
+class IncidentsCarte(APIView):
+    """
+    GET /api/dashboard/incidents-carte/
+
+    Retourne tous les incidents avec leurs coordonnées GPS
+    pour affichage sous forme de points sur la carte admin.
+
+    Accessible aux administrateurs et aux agents.
+    """
+
+    permission_classes = [IsAgentOrAdmin]
+
+    @extend_schema(
+        summary="Incidents pour la carte",
+        description=(
+            "Retourne la liste de tous les incidents avec leur position GPS, "
+            "type, statut et niveau d'urgence. "
+            "Utilisé pour afficher les marqueurs sur la carte du dashboard admin."
+        ),
+        responses={
+            200: OpenApiResponse(description="Liste des incidents géolocalisés"),
+        },
+        tags=["Dashboard"],
+    )
+    def get(self, request):
+        incidents = Incident.objects.only(
+            "id",
+            "reference",
+            "type",
+            "statut",
+            "niveau_urgence",
+            "quartier",
+            "adresse",
+            "latitude",
+            "longitude",
+            "description",
+            "date_creation",
+        ).order_by("-date_creation")
+
+        data = [
+            {
+                "id": inc.id,
+                "reference": inc.reference,
+                "type": inc.type,
+                "statut": inc.statut,
+                "niveau_urgence": inc.niveau_urgence,
+                "quartier": inc.quartier,
+                "adresse": inc.adresse,
+                "latitude": inc.latitude,
+                "longitude": inc.longitude,
+                "description": inc.description,
+                "date_creation": inc.date_creation,
+            }
+            for inc in incidents
+            if inc.latitude is not None and inc.longitude is not None
+        ]
+
+        return Response(data)
