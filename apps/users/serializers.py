@@ -281,8 +281,6 @@ class ResendOtpSerializer(serializers.Serializer):
         return value
 
 
-
-
 class AgentSerializer(serializers.ModelSerializer):
     """Lecture d'un agent avec les informations de son utilisateur."""
 
@@ -339,7 +337,7 @@ class AgentCreateSerializer(serializers.Serializer):
         write_only=True,
         validators=[validate_password],
     )
-    matricule = serializers.CharField(max_length=50)
+    
     departement = serializers.CharField(
         max_length=100,
         required=False,
@@ -359,13 +357,6 @@ class AgentCreateSerializer(serializers.Serializer):
             )
         return value
 
-    def validate_matricule(self, value):
-        if Agent.objects.filter(matricule=value).exists():
-            raise serializers.ValidationError(
-                "Ce matricule est déjà utilisé."
-            )
-        return value
-
     def create(self, validated_data):
         nom_complet = validated_data.pop("nom_complet").strip()
         password = validated_data.pop("password")
@@ -380,6 +371,7 @@ class AgentCreateSerializer(serializers.Serializer):
 
         username = RegisterSerializer._generer_username(email)
 
+        # Création de l'utilisateur
         user = Utilisateur(
             username=username,
             first_name=first_name,
@@ -389,10 +381,27 @@ class AgentCreateSerializer(serializers.Serializer):
             quartier=quartier,
             role=Utilisateur.Role.AGENT,
         )
+
         user.set_password(password)
         user.save()
 
+        # Génération automatique de la matricule
+        dernier_agent = Agent.objects.order_by("-id").first()
+
+        if dernier_agent:
+            dernier_numero = int(
+                dernier_agent.matricule.replace("AG", "")
+            )
+            numero = dernier_numero + 1
+        else:
+            numero = 1
+
+        matricule = f"AG{numero:03d}"
+
+        # Création de l'agent
         return Agent.objects.create(
             utilisateur=user,
+            matricule=matricule,
             **validated_data,
         )
+

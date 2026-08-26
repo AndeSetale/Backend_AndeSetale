@@ -56,31 +56,13 @@ class InterventionSerializer(serializers.ModelSerializer):
     requête vers /api/incidents/<id>/.
     """
 
-    # ----------------------------------------------------------
-    # INCIDENT IMBRIQUÉ
-    # ----------------------------------------------------------
-    #
-    # Avant :
-    #
-    # "incident": 1
-    #
-    # Maintenant :
-    #
-    # "incident": {
-    #     "id": 1,
-    #     "reference": "...",
-    #     ...
-    # }
-    #
-    # On réutilise directement IncidentSerializer afin de garder
-    # exactement le même format que l'API des incidents.
     incident = IncidentSerializer(read_only=True)
 
     # ----------------------------------------------------------
     # RAPPORT
     # ----------------------------------------------------------
     #
-    # Le rapport est également imbriqué lorsqu'il existe.
+    # Le rapport est imbriqué lorsqu'il existe.
     # Si aucun rapport n'existe encore, la valeur sera null.
     rapport = RapportSerializer(read_only=True)
 
@@ -91,12 +73,23 @@ class InterventionSerializer(serializers.ModelSerializer):
             "numero_suivi",
             "incident",
             "agent",
+            "agent_nom",
             "statut",
             "date_debut",
             "date_fin",
             "rapport",
         ]
-        read_only_fields = ["id", "numero_suivi"]
+        read_only_fields = ["id", "numero_suivi", "agent_nom",]
+        
+    agent_nom = serializers.SerializerMethodField()   
+    def get_agent_nom(self, obj):
+        if not obj.agent:
+            return None
+
+        return (
+            obj.agent.get_full_name()
+            or obj.agent.username
+        )
 
 
 class InterventionCreateSerializer(serializers.ModelSerializer):

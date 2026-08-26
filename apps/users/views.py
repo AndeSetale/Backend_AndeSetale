@@ -134,7 +134,6 @@ class ResendOtpView(APIView):
 
 
 
-
 @extend_schema(
     responses=AgentSerializer,
     description="Liste des agents.",
@@ -150,6 +149,18 @@ class AgentListCreateView(generics.ListCreateAPIView):
         if self.request.method == "POST":
             return AgentCreateSerializer
         return AgentSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = AgentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        agent = serializer.save()
+
+        return Response(
+            AgentSerializer(agent).data,
+            status=status.HTTP_201_CREATED
+        )
+
 
 
 @extend_schema(
