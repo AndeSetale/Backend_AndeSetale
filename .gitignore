@@ -1,6 +1,34 @@
+# Environnement virtuel
 .venv/
+
+# Variables d'environnement — NE JAMAIS COMMITTER
 .env
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Django
 db.sqlite3
 staticfiles/
+media/
+
+# Fichiers parasites
+*.sql
+*.deb
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

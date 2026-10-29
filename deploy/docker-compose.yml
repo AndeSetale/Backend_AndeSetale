@@ -1,0 +1,80 @@
+# Andë Sétal — stack complète : MySQL + Backend Django + Microservice IA + Frontend Angular
+#
+# Les trois dépôts doivent être clonés côte à côte :
+#   AndeSetale/
+#   ├── AndeSetal_Frontend/
+#   ├── Backend_AndeSetale/   (ce fichier : deploy/docker-compose.yml)
+#   └── ai-ande-settal/
+#
+# Lancement depuis Backend_AndeSetale/ :
+#   docker compose -f deploy/docker-compose.yml up -d --build
+
+# Nom fixe : mêmes conteneurs et volumes quel que soit le dossier de lancement
+name: andesetale
+
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: and_setal
+      MYSQL_USER: ande_user
+      MYSQL_PASSWORD: ande_password
+      MYSQL_ROOT_PASSWORD: root_password
+    ports:
+      - "3307:3306"   # 3306 est déjà pris par le MySQL local
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ia:
+    build: ../../ai-ande-settal
+    env_file:
+      - path: ../../ai-ande-settal/.env
+        required: false
+    ports:
+      - "8001:8001"
+
+  backend:
+    build: ..
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-docker-secret-key-a-changer-en-production}
+      DEBUG: "True"
+      ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      CORS_ALLOWED_ORIGINS: http://localhost:4200,http://127.0.0.1:4200
+      DB_ENGINE: mysql
+      USE_SQLITE: "False"
+      DB_NAME: and_setal
+      DB_USER: ande_user
+      DB_PASSWORD: ande_password
+      DB_HOST: db
+      DB_PORT: "3306"
+      AI_SERVICE_URL: http://ia:8001/analyze-image
+      # Mettre "False" pour accepter des signalements hors de Dakar-Plateau (tests)
+      GEOFENCE_PLATEAU: ${GEOFENCE_PLATEAU:-True}
+    ports:
+      - "8000:8000"
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      ia:
+        condition: service_started
+
+  frontend:
+    build: ../../AndeSetal_Frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  media_data:
