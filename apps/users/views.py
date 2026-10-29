@@ -3,6 +3,7 @@ from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.generics import get_object_or_404
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .otp_utils import can_resend_otp, create_and_send_otp
@@ -14,9 +15,10 @@ from .serializers import (
     ResendOtpSerializer,
     UtilisateurSerializer,
     VerifyEmailSerializer,
+    AgentDetailSerializer,
 )
 from .models import Agent
-from .permissions import IsAdmin
+from .permissions import IsAdmin, IsAgent
 
 
 @extend_schema(
@@ -69,8 +71,8 @@ class LoginView(TokenObtainPairView):
     description="Retourne le profil complet de l'utilisateur authentifié.",
     tags=["Auth"],
 )
-class MeView(generics.RetrieveAPIView):
-    """GET /api/auth/me/ — Profil de l'utilisateur connecté."""
+class MeView(generics.RetrieveUpdateAPIView):
+    """GET/PATCH /api/auth/me/ — Profil de l'utilisateur connecté."""
 
     permission_classes = (IsAuthenticated,)
     serializer_class = UtilisateurSerializer
@@ -142,6 +144,8 @@ class ResendOtpView(APIView):
 )
 class AgentListCreateView(generics.ListCreateAPIView):
     permission_classes = (IsAdmin,)
+    # Liste complète (quelques dizaines d'agents) : pas de pagination
+    pagination_class = None
 
     def get_queryset(self):
         return Agent.objects.select_related("utilisateur").all()
@@ -150,6 +154,12 @@ class AgentListCreateView(generics.ListCreateAPIView):
         if self.request.method == "POST":
             return AgentCreateSerializer
         return AgentSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = AgentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        agent = serializer.save()
+        return Response(AgentSerializer(agent).data, status=status.HTTP_201_CREATED)
 
 
 @extend_schema(
@@ -160,4 +170,31 @@ class AgentListCreateView(generics.ListCreateAPIView):
 class AgentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = (IsAdmin,)
     queryset = Agent.objects.select_related("utilisateur")
-    serializer_class = AgentSerializer
+    serializer_class = AgentDetailSerializer
+
+    def perform_destroy(self, instance):
+        # Supprime aussi le compte de connexion, sinon l'ancien agent
+        # pourrait toujours se connecter avec le rôle agent.
+        instance.utilisateur.delete()
+
+
+@extend_schema(
+    responses=AgentDetailSerializer,
+    description="Profil de l'agent connecté (GET) et changement de disponibilité (PATCH).",
+    tags=["Agents"],
+)
+class AgentMeView(generics.RetrieveUpdateAPIView):
+    """GET/PATCH /api/agents/me/ — l'agent ne peut modifier que sa disponibilité."""
+
+    permission_classes = (IsAgent,)
+    serializer_class = AgentDetailSerializer
+
+    def get_object(self):
+        return get_object_or_404(Agent.objects.select_related("utilisateur"), utilisateur=self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        agent = self.get_object()
+        if "disponible" in request.data:
+            agent.disponible = str(request.data["disponible"]).lower() in ("true", "1")
+            agent.save(update_fields=["disponible"])
+        return Response(self.get_serializer(agent).data)

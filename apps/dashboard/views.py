@@ -1,19 +1,23 @@
 from datetime import timedelta
 
 from django.db.models import Count
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.incidents.models import Incident
 from apps.interventions.models import Intervention
+from apps.interventions.stats import stats_agent
 
 from apps.users.models import Agent
-from apps.users.permissions import IsAgent
+
+from .models import EvenementSetSetal
+from apps.users.permissions import IsAdmin, IsAgent, IsAgentOrAdmin
 
 from .serializers import (
     DashboardStatsSerializer,
@@ -37,7 +41,7 @@ class DashboardStatsView(APIView):
     pour le dashboard administrateur.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
     @extend_schema(
         summary="Statistiques du dashboard superviseur",
@@ -107,6 +111,66 @@ class DashboardStatsView(APIView):
         # RÉPONSE
         # ------------------------------------------------------
 
+        # ------------------------------------------------------
+        # RÉPARTITION PAR TYPE (donut)
+        # ------------------------------------------------------
+
+        labels_type = dict(Incident.TypeIncident.choices)
+        repartition_par_type = [
+            {
+                "type": row["type"],
+                "label": labels_type.get(row["type"], row["type"]),
+                "count": row["count"],
+            }
+            for row in Incident.objects.values("type")
+            .annotate(count=Count("id"))
+            .order_by("-count")
+        ]
+
+        # ------------------------------------------------------
+        # ÉVOLUTION SUR 30 JOURS (nouveaux vs résolus par jour)
+        # ------------------------------------------------------
+
+        aujourd_hui = timezone.localdate()
+        depuis = aujourd_hui - timedelta(days=29)
+
+        def par_jour(queryset, champ):
+            return {
+                row["jour"]: row["total"]
+                for row in queryset.filter(**{f"{champ}__date__gte": depuis})
+                .annotate(jour=TruncDate(champ))
+                .values("jour")
+                .annotate(total=Count("id"))
+            }
+
+        nouveaux = par_jour(Incident.objects.all(), "date_creation")
+        resolus_jour = par_jour(
+            Incident.objects.filter(date_resolution__isnull=False), "date_resolution"
+        )
+        evolution_30_jours = [
+            {
+                "date": jour.isoformat(),
+                "nouveaux": nouveaux.get(jour, 0),
+                "resolus": resolus_jour.get(jour, 0),
+            }
+            for jour in (depuis + timedelta(days=n) for n in range(30))
+        ]
+
+        # ------------------------------------------------------
+        # PERFORMANCE DES AGENTS (classés par interventions terminées)
+        # ------------------------------------------------------
+
+        performance_agents = []
+        for agent in Agent.objects.select_related("utilisateur"):
+            stats = stats_agent(agent.utilisateur)
+            performance_agents.append({
+                "id": agent.id,
+                "nom_complet": agent.utilisateur.get_full_name() or agent.utilisateur.username,
+                "resolus": stats["interventions_terminees"],
+                "taux_completion": stats["taux_completion"],
+            })
+        performance_agents.sort(key=lambda a: a["resolus"], reverse=True)
+
         data = {
             "signalements": {
                 "total": total,
@@ -116,6 +180,9 @@ class DashboardStatsView(APIView):
             },
             "incidents_par_statut": incidents_par_statut,
             "agents_disponibles": agents_disponibles,
+            "repartition_par_type": repartition_par_type,
+            "evolution_30_jours": evolution_30_jours,
+            "performance_agents": performance_agents[:5],
         }
 
         return Response(data)
@@ -202,10 +269,7 @@ class AgentDashboardView(APIView):
         # TÂCHES TERMINÉES CETTE SEMAINE
         # ------------------------------------------------------
 
-        taches_resolues_semaine = interventions.filter(
-            statut=Intervention.Statut.TERMINEE,
-            date_fin__date__gte=debut_semaine,
-        ).count()
+        taches_resolues_semaine = stats["taches_resolues_semaine"]
 
         # ------------------------------------------------------
         # INTERVENTIONS ACTUELLEMENT EN COURS
@@ -220,8 +284,9 @@ class AgentDashboardView(APIView):
         # ------------------------------------------------------
 
         # Ces deux valeurs existent déjà dans le modèle Agent.
-        taux_completion = agent.taux_completion
-        ponctualite = agent.ponctualite
+        stats = stats_agent(request.user)
+        taux_completion = stats["taux_completion"]
+        ponctualite = stats["ponctualite"]
 
         # ======================================================
         # INTERVENTIONS PRIORITAIRES
@@ -356,3 +421,99 @@ class AgentDashboardView(APIView):
         serializer = AgentDashboardSerializer(data)
 
         return Response(serializer.data)
+
+
+# ==============================================================
+# CARTE INCIDENTS — ADMIN / AGENT
+# ==============================================================
+
+class IncidentsCarte(APIView):
+    """
+    GET /api/dashboard/incidents-carte/
+
+    Retourne tous les incidents avec leurs coordonnées GPS
+    pour affichage sous forme de points sur la carte admin.
+
+    Accessible aux administrateurs et aux agents.
+    """
+
+    permission_classes = [IsAgentOrAdmin]
+
+    @extend_schema(
+        summary="Incidents pour la carte",
+        description=(
+            "Retourne la liste de tous les incidents avec leur position GPS, "
+            "type, statut et niveau d'urgence. "
+            "Utilisé pour afficher les marqueurs sur la carte du dashboard admin."
+        ),
+        responses={
+            200: OpenApiResponse(description="Liste des incidents géolocalisés"),
+        },
+        tags=["Dashboard"],
+    )
+    def get(self, request):
+        incidents = Incident.objects.only(
+            "id",
+            "reference",
+            "type",
+            "statut",
+            "niveau_urgence",
+            "quartier",
+            "adresse",
+            "latitude",
+            "longitude",
+            "description",
+            "date_creation",
+        ).order_by("-date_creation")
+
+        data = [
+            {
+                "id": inc.id,
+                "reference": inc.reference,
+                "type": inc.type,
+                "statut": inc.statut,
+                "niveau_urgence": inc.niveau_urgence,
+                "quartier": inc.quartier,
+                "adresse": inc.adresse,
+                "latitude": inc.latitude,
+                "longitude": inc.longitude,
+                "description": inc.description,
+                "date_creation": inc.date_creation,
+            }
+            for inc in incidents
+            if inc.latitude is not None and inc.longitude is not None
+        ]
+
+        return Response(data)
+
+
+# ==============================================================
+# PROCHAIN ÉVÉNEMENT SET-SETAL — ACCUEIL CITOYEN (PUBLIC)
+# ==============================================================
+
+class ProchainEvenementView(APIView):
+    """
+    GET /api/dashboard/evenements/prochain/
+
+    Retourne le prochain événement Set-Setal à venir, ou null s'il n'y en a pas.
+    Les événements sont créés par l'administrateur (admin Django).
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Prochain événement Set-Setal",
+        responses={200: OpenApiResponse(description="Événement ou null")},
+        tags=["Dashboard"],
+    )
+    def get(self, request):
+        evenement = EvenementSetSetal.objects.filter(date__gte=timezone.now()).first()
+        if evenement is None:
+            return Response(None)
+        return Response({
+            "id": evenement.id,
+            "titre": evenement.titre,
+            "lieu": evenement.lieu,
+            "date": evenement.date,
+            "description": evenement.description,
+        })

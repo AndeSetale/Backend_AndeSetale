@@ -193,3 +193,15 @@ SPECTACULAR_SETTINGS = {
 # CORS
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
+
+# ---------------------------------------------------------------------------
+# Microservice IA (FastAPI)
+# ---------------------------------------------------------------------------
+AI_SERVICE_URL = env("AI_SERVICE_URL", default="http://localhost:8001/analyze-image")
+AI_SERVICE_TIMEOUT = env.int("AI_SERVICE_TIMEOUT", default=30)
+
+# ---------------------------------------------------------------------------
+# Périmètre Dakar-Plateau : refuse les signalements géolocalisés hors zone.
+# Mettre GEOFENCE_PLATEAU=False pour tester depuis un autre quartier.
+# ---------------------------------------------------------------------------
+GEOFENCE_PLATEAU = env.bool("GEOFENCE_PLATEAU", default=True)

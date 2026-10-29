@@ -3,6 +3,9 @@
 Plateforme de co-gestion de la salubrité urbaine à Dakar.  
 Backend REST en Django 6.1 + DRF, base de données MySQL, authentification JWT.
 
+> **Livrables du projet** (présentation, base de données, documentation technique, API) : [`docs/livrables/`](docs/livrables/README.md)  
+> **Lancer toute la plateforme avec Docker** : `docker compose -f deploy/docker-compose.yml up -d --build`
+
 ---
 
 ## Stack technique
@@ -67,7 +70,7 @@ Backend_AndeSetale/
 │   ├── api_urls.py         # Préfixe /api/
 │   ├── wsgi.py
 │   └── asgi.py
-├── apidoc.md               # Documentation API pour le frontend Angular
+├── docs/                   # Livrables, notes d'équipe (docs/notes/) et documentation
 ├── .env                    # Variables locales (non versionné)
 ├── .env.example            # Template à copier
 ├── pyproject.toml          # Dépendances + config pytest

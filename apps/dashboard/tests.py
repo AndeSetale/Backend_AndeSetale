@@ -21,8 +21,15 @@ class TestDashboardStatsAPI:
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_dashboard_accessible_utilisateur_authentifie(self, user_citoyen):
+    def test_dashboard_refuse_citoyen(self, user_citoyen):
         self.client.force_authenticate(user=user_citoyen)
+
+        response = self.client.get("/api/dashboard/stats/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_dashboard_accessible_admin(self, user_citoyen, user_admin):
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 
@@ -32,8 +39,8 @@ class TestDashboardStatsAPI:
     # DASHBOARD VIDE
     # ==========================================================
 
-    def test_dashboard_sans_donnees(self, user_citoyen):
-        self.client.force_authenticate(user=user_citoyen)
+    def test_dashboard_sans_donnees(self, user_citoyen, user_admin):
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 
@@ -53,7 +60,7 @@ class TestDashboardStatsAPI:
     # TOTAL INCIDENTS
     # ==========================================================
 
-    def test_total_incidents(self, user_citoyen):
+    def test_total_incidents(self, user_citoyen, user_admin):
         Incident.objects.create(
             type=Incident.TypeIncident.DECHETS,
             description="Déchets dans la rue",
@@ -66,7 +73,7 @@ class TestDashboardStatsAPI:
             signale_par=user_citoyen,
         )
 
-        self.client.force_authenticate(user=user_citoyen)
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 
@@ -76,7 +83,7 @@ class TestDashboardStatsAPI:
     # INCIDENTS EN COURS
     # ==========================================================
 
-    def test_compte_incidents_en_cours(self, user_citoyen):
+    def test_compte_incidents_en_cours(self, user_citoyen, user_admin):
         Incident.objects.create(
             type=Incident.TypeIncident.DECHETS,
             description="Incident en cours",
@@ -91,7 +98,7 @@ class TestDashboardStatsAPI:
             signale_par=user_citoyen,
         )
 
-        self.client.force_authenticate(user=user_citoyen)
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 
@@ -101,7 +108,7 @@ class TestDashboardStatsAPI:
     # INCIDENTS RÉSOLUS
     # ==========================================================
 
-    def test_compte_incidents_resolus(self, user_citoyen):
+    def test_compte_incidents_resolus(self, user_citoyen, user_admin):
         Incident.objects.create(
             type=Incident.TypeIncident.DECHETS,
             description="Incident résolu",
@@ -116,7 +123,7 @@ class TestDashboardStatsAPI:
             signale_par=user_citoyen,
         )
 
-        self.client.force_authenticate(user=user_citoyen)
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 
@@ -126,7 +133,7 @@ class TestDashboardStatsAPI:
     # INCIDENTS URGENTS
     # ==========================================================
 
-    def test_compte_incidents_urgents(self, user_citoyen):
+    def test_compte_incidents_urgents(self, user_citoyen, user_admin):
         Incident.objects.create(
             type=Incident.TypeIncident.DECHETS,
             description="Urgence critique",
@@ -155,7 +162,7 @@ class TestDashboardStatsAPI:
             signale_par=user_citoyen,
         )
 
-        self.client.force_authenticate(user=user_citoyen)
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 
@@ -165,7 +172,7 @@ class TestDashboardStatsAPI:
     # RÉPARTITION PAR STATUT
     # ==========================================================
 
-    def test_repartition_incidents_par_statut(self, user_citoyen):
+    def test_repartition_incidents_par_statut(self, user_citoyen, user_admin):
         Incident.objects.create(
             type=Incident.TypeIncident.DECHETS,
             description="Nouveau 1",
@@ -194,7 +201,7 @@ class TestDashboardStatsAPI:
             signale_par=user_citoyen,
         )
 
-        self.client.force_authenticate(user=user_citoyen)
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 
@@ -214,6 +221,7 @@ class TestDashboardStatsAPI:
     def test_compte_agents_disponibles(
         self,
         user_citoyen,
+        user_admin,
         user_agent,
     ):
         Agent.objects.create(
@@ -222,7 +230,7 @@ class TestDashboardStatsAPI:
             disponible=True,
         )
 
-        self.client.force_authenticate(user=user_citoyen)
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 
@@ -235,6 +243,7 @@ class TestDashboardStatsAPI:
     def test_agents_indisponibles_non_comptes(
         self,
         user_citoyen,
+        user_admin,
         user_agent,
     ):
         Agent.objects.create(
@@ -243,7 +252,7 @@ class TestDashboardStatsAPI:
             disponible=False,
         )
 
-        self.client.force_authenticate(user=user_citoyen)
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 
@@ -253,8 +262,8 @@ class TestDashboardStatsAPI:
     # STRUCTURE DE LA RÉPONSE
     # ==========================================================
 
-    def test_structure_reponse_dashboard(self, user_citoyen):
-        self.client.force_authenticate(user=user_citoyen)
+    def test_structure_reponse_dashboard(self, user_citoyen, user_admin):
+        self.client.force_authenticate(user=user_admin)
 
         response = self.client.get("/api/dashboard/stats/")
 

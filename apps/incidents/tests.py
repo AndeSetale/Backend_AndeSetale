@@ -102,10 +102,10 @@ class TestIncidentAPI:
             "type": "DECHETS",
             "description": "Dépôt sauvage de déchets",
             "niveau_urgence": "ELEVE",
-            "quartier": "Yoff",
+            "quartier": "Plateau",
             "adresse": "Rue principale",
-            "latitude": 14.75,
-            "longitude": -17.45,
+            "latitude": 14.6700,
+            "longitude": -17.4380,
         }
         response = self.client.post("/api/incidents/", data, format="json")
         assert response.status_code == status.HTTP_201_CREATED
@@ -267,8 +267,8 @@ class SignalementAPITests(APITestCase):
         self.assertEqual(response.data["type"], Incident.TypeIncident.CANAUX)
         self.assertEqual(response.data["signale_par"], self.citoyen1.id)
 
-    def test_liste_signalements_filtree_pour_citoyen(self):
-        """Un citoyen ne voit que ses propres signalements."""
+    def test_liste_signalements_citoyen_sans_donnees_personnelles(self):
+        """Un citoyen voit tous les signalements (carte) mais pas l'identité des autres signaleurs."""
         self.client.force_authenticate(user=self.citoyen1)
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -277,8 +277,13 @@ class SignalementAPITests(APITestCase):
             if "results" in response.data
             else response.data
         )
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], self.incident1.id)
+        par_id = {r["id"]: r for r in results}
+        self.assertEqual(len(results), 2)
+        # Son propre signalement : détails conservés
+        self.assertEqual(par_id[self.incident1.id]["signale_par"], self.citoyen1.id)
+        # Celui d'un autre citoyen : identité masquée
+        self.assertIsNone(par_id[self.incident2.id]["signale_par"])
+        self.assertIsNone(par_id[self.incident2.id]["signale_par_details"])
 
     def test_liste_signalements_admin_voit_tout(self):
         """Un admin voit tous les signalements."""

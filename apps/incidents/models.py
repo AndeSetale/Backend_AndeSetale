@@ -44,6 +44,8 @@ class Incident(models.Model):
     latitude = models.FloatField(blank=True, null=True)
     longitude = models.FloatField(blank=True, null=True)
     date_creation = models.DateTimeField(auto_now_add=True)
+    # Renseignée automatiquement lorsque l'incident passe au statut RESOLU
+    date_resolution = models.DateTimeField(blank=True, null=True)
     date_estimation_heures = models.IntegerField(blank=True, null=True)
     commentaire = models.TextField(blank=True, null=True)
 

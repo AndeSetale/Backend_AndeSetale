@@ -135,18 +135,40 @@ class IncidentDetailView(APIView):
         return Response(serializer.data)
 
     def patch(self, request, pk):
+        # Import local : interventions dépend déjà de incidents
+        from apps.interventions.workflow import (
+            assigner_incident,
+            resoudre_incident,
+            terminer_intervention,
+        )
+
         incident = get_object_or_404(Incident, pk=pk)
         serializer = IncidentUpdateSerializer(
             incident, data=request.data, partial=True
             )
         serializer.is_valid(raise_exception=True)
+
+        # L'assignation et la résolution passent par le workflow pour créer
+        # l'intervention de l'agent, dater la résolution et notifier.
+        agent = serializer.validated_data.pop("assigne_a", None)
+        nouveau_statut = serializer.validated_data.get("statut")
         serializer.save()
+
+        if agent is not None and agent.id != incident.assigne_a_id:
+            assigner_incident(incident, agent)
+        if nouveau_statut == Incident.StatutIncident.RESOLU:
+            for intervention in incident.interventions.exclude(statut="TERMINEE"):
+                terminer_intervention(intervention)
+            resoudre_incident(incident)
+
+        incident.refresh_from_db()
         return Response(
             IncidentSerializer(incident, context={"request": request}).data 
         )
 
 class AnalyseIAView(APIView):
-    permission_classes = [IsAuthenticated]
+    # Écriture du résultat IA : jamais par un citoyen
+    permission_classes = [IsAgentOrAdmin]
 
     def post(self, request, pk):
         incident = get_object_or_404(Incident, pk=pk)
