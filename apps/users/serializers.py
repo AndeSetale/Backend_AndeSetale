@@ -28,7 +28,8 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             "email_verifie",
             "date_joined",
         )
-        read_only_fields = ("id", "email_verifie", "date_joined")
+        # role/username non modifiables via PATCH /auth/me/ (sinon auto-promotion admin)
+        read_only_fields = ("id", "username", "role", "email_verifie", "date_joined")
 
 
 # ---------------------------------------------------------------------------
@@ -303,15 +304,23 @@ class AgentSerializer(serializers.ModelSerializer):
         source="utilisateur.quartier",
         read_only=True,
     )
+    # Id du compte Utilisateur : c'est lui qu'attend Incident.assigne_a
+    utilisateur_id = serializers.IntegerField(read_only=True)
+    photo_profil = serializers.ImageField(
+        source="utilisateur.photo_profil",
+        read_only=True,
+    )
 
     class Meta:
         model = Agent
         fields = (
             "id",
+            "utilisateur_id",
             "nom_complet",
             "email",
             "telephone",
             "quartier",
+            "photo_profil",
             "matricule",
             "departement",
             "specialisation",
@@ -324,7 +333,33 @@ class AgentSerializer(serializers.ModelSerializer):
         )
 
     def get_nom_complet(self, obj):
-        return obj.utilisateur.get_full_name()
+        return obj.utilisateur.get_full_name() or obj.utilisateur.username
+
+    def to_representation(self, instance):
+        # Les indicateurs sont recalculés depuis les interventions réelles
+        # (les champs stockés du modèle Agent ne sont jamais mis à jour).
+        from apps.interventions.stats import stats_agent
+
+        data = super().to_representation(instance)
+        data.update(stats_agent(instance.utilisateur))
+        return data
+
+
+class AgentDetailSerializer(AgentSerializer):
+    """Fiche agent complète : indicateurs + graphiques + activité récente."""
+
+    def to_representation(self, instance):
+        from apps.interventions.stats import (
+            activite_semaine_agent,
+            activites_recentes_agent,
+            repartition_types_agent,
+        )
+
+        data = super().to_representation(instance)
+        data["activite_semaine"] = activite_semaine_agent(instance.utilisateur)
+        data["repartition_types"] = repartition_types_agent(instance.utilisateur)
+        data["activites_recentes"] = activites_recentes_agent(instance.utilisateur)
+        return data
 
 
 class AgentCreateSerializer(serializers.Serializer):

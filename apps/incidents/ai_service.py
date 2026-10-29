@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 # URL configurable du Microservice IA FastAPI
 AI_SERVICE_URL = getattr(settings, "AI_SERVICE_URL", "http://localhost:8001/analyze-image")
+# Le service IA enchaîne Hugging Face (10s max) puis OpenRouter (12s max) : 15s ne suffisait pas
+AI_SERVICE_TIMEOUT = getattr(settings, "AI_SERVICE_TIMEOUT", 30)
 
 
 def déclencher_analyse_ia(incident: Incident, preuve_image) -> AnalyseIA | None:
@@ -59,7 +61,7 @@ def déclencher_analyse_ia(incident: Incident, preuve_image) -> AnalyseIA | None
             method="POST",
         )
 
-        with urllib.request.urlopen(req, timeout=15) as response:
+        with urllib.request.urlopen(req, timeout=AI_SERVICE_TIMEOUT) as response:
             if response.status == 200:
                 resp_text = response.read().decode("utf-8")
                 data = json.loads(resp_text)

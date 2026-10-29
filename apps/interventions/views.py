@@ -16,6 +16,8 @@ from .serializers import (
 from apps.users.permissions import IsAgent, IsAgentOrAdmin
 from django.utils import timezone
 
+from .workflow import assigner_incident, terminer_intervention
+
 class InterventionListView(APIView):
     """
     GET  /api/interventions/
@@ -123,7 +125,10 @@ class InterventionListView(APIView):
             raise_exception=True
         )
 
-        intervention = serializer.save()
+        intervention = assigner_incident(
+            serializer.validated_data["incident"],
+            serializer.validated_data["agent"],
+        )
 
         output = InterventionSerializer(
             intervention
@@ -356,6 +361,10 @@ class InterventionDetailView(APIView):
 
         intervention = serializer.save()
 
+        # Fin d'intervention : l'incident lié passe RESOLU
+        if intervention.statut == Intervention.Statut.TERMINEE:
+            terminer_intervention(intervention)
+
         # ------------------------------------------------------
         # Réponse
         # ------------------------------------------------------
@@ -475,6 +484,9 @@ class RapportView(APIView):
         rapport = serializer.save(
             intervention=intervention
         )
+
+        # L'envoi du rapport photo clôture l'intervention
+        terminer_intervention(intervention)
 
         return Response(
             RapportSerializer(rapport).data,

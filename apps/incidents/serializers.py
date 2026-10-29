@@ -2,6 +2,7 @@
 Serializers REST Framework pour le module des incidents / signalements.
 """
 
+from django.conf import settings
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from drf_spectacular.types import OpenApiTypes
@@ -214,10 +215,11 @@ class IncidentCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         lat = attrs.get("latitude")
         lng = attrs.get("longitude")
-        if lat is not None and lng is not None:
+        if lat is not None and lng is not None and settings.GEOFENCE_PLATEAU:
             if not point_dans_plateau(lat, lng):
                 raise serializers.ValidationError(
-                    "Ce signalement est en dehors du périmètre couvert (Dakar-Plateau)."
+                    "Ce signalement est en dehors du périmètre couvert (Dakar-Plateau) — "
+                    f"position reçue : {lat:.5f}, {lng:.5f}."
                 )
         return attrs
 
@@ -285,8 +287,34 @@ class IncidentSerializer(serializers.ModelSerializer):
             "assigne_a_details",
             "preuves",
             "analyse_ia",
+            "date_resolution",
         ]
         read_only_fields = ["id", "reference", "date_creation"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if request is None:
+            # Usage interne (imbriqué dans une intervention, réservée au staff)
+            return data
+        user = getattr(request, "user", None)
+        est_staff = user is not None and user.is_authenticated and user.role in (
+            Utilisateur.Role.AGENT,
+            Utilisateur.Role.ADMIN,
+        )
+        est_auteur = user is not None and user.is_authenticated and instance.signale_par_id == user.id
+        if not est_staff and not est_auteur:
+            # Un citoyen voit tous les incidents (carte publique) mais jamais
+            # l'identité ni les coordonnées des autres signaleurs/agents.
+            data["signale_par"] = None
+            data["signale_par_details"] = None
+            if data.get("assigne_a_details"):
+                data["assigne_a_details"] = {
+                    "id": data["assigne_a_details"]["id"],
+                    "nom_complet": data["assigne_a_details"]["nom_complet"],
+                    "role": data["assigne_a_details"]["role"],
+                }
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +323,13 @@ class IncidentSerializer(serializers.ModelSerializer):
 
 class IncidentUpdateSerializer(serializers.ModelSerializer):
     """Mise à jour partielle par un agent/admin."""
+
+    def validate_assigne_a(self, value):
+        if value is not None and value.role != Utilisateur.Role.AGENT:
+            raise serializers.ValidationError(
+                "L'utilisateur sélectionné n'est pas un agent."
+            )
+        return value
 
     class Meta:
         model = Incident

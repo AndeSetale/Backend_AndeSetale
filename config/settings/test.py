@@ -27,3 +27,7 @@ MAILERS = {
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 DEBUG = False
+
+# Fichiers uploadés pendant les tests : dossier temporaire, pas le vrai media/
+import tempfile
+MEDIA_ROOT = tempfile.mkdtemp(prefix="andesetal-test-media-")

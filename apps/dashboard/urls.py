@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import DashboardStatsView, AgentDashboardView, IncidentsCarte
+from .views import DashboardStatsView, AgentDashboardView, IncidentsCarte, ProchainEvenementView
 
 urlpatterns = [
     # Dashboard superviseur/admin existant
@@ -9,5 +9,7 @@ urlpatterns = [
     path("agent/", AgentDashboardView.as_view(), name="dashboard-agent"),
     # Incidents géolocalisés pour la carte admin
     path("incidents-carte/", IncidentsCarte.as_view(), name="dashboard-incidents-carte"),
+    # Prochain événement Set-Setal (accueil citoyen, public)
+    path("evenements/prochain/", ProchainEvenementView.as_view(), name="dashboard-prochain-evenement"),
 ]
 

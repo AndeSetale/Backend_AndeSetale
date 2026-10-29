@@ -31,6 +31,7 @@ class Intervention(models.Model):
         choices=Statut.choices,
         default=Statut.EN_ATTENTE,
     )
+    date_assignation = models.DateTimeField(auto_now_add=True, null=True)
     date_debut = models.DateTimeField(blank=True, null=True)
     date_fin = models.DateTimeField(blank=True, null=True)
     numero_suivi = models.CharField(max_length=50, unique=True)

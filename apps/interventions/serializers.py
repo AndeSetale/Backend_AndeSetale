@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from .models import Intervention, Rapport
 from apps.users.models import Agent
+from apps.incidents.serializers import IncidentSerializer
 
 class RapportSerializer(serializers.ModelSerializer):
     """
@@ -35,6 +36,8 @@ class InterventionSerializer(serializers.ModelSerializer):
     """Lecture complète d'une intervention avec son rapport s'il existe."""
 
     rapport = RapportSerializer(read_only=True)
+    incident_details = IncidentSerializer(source="incident", read_only=True)
+    agent_nom = serializers.SerializerMethodField()
 
     class Meta:
         model = Intervention
@@ -42,13 +45,21 @@ class InterventionSerializer(serializers.ModelSerializer):
             "id",
             "numero_suivi",
             "incident",
+            "incident_details",
             "agent",
+            "agent_nom",
             "statut",
+            "date_assignation",
             "date_debut",
             "date_fin",
             "rapport",
         ]
         read_only_fields = ["id", "numero_suivi"]
+
+    def get_agent_nom(self, obj):
+        if obj.agent is None:
+            return None
+        return obj.agent.get_full_name() or obj.agent.username
 
 
 
